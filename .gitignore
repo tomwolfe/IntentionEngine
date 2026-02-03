@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+
+# Production build
+.next/
+
+# Environment variables
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Temporary files
+tmp/
+temp/
+
+# Build outputs
+dist/
+build/
+
+# Next.js cache
+.cache/
+
+# npm debug log
+npm-debug.log*
+
+# yarn lock file
+yarn.lock
+
+# pnpm lock file
+pnpm-lock.yaml
+
+# Output of `npm pack`
+*.tgz
+
+# Next.js specific
+out/
+.next/cache/
+.next/server/
+.next/static/
+
+# Local development environments
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

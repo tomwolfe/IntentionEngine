@@ -1,0 +1,10 @@
+{
+  "framework": "nextjs",
+  "rootDirectory": ".",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ]
+}

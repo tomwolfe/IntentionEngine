@@ -65,7 +65,15 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    sendMessage({ text: input }, {
+    sendMessage({ 
+      messages: [
+        ...messages.map(m => ({
+          role: m.role,
+          content: m.parts.map(p => p.type === 'text' ? p.text : '').join('')
+        })),
+        { role: 'user', content: input }
+      ]
+    }, {
       body: {
         userLocation
       }

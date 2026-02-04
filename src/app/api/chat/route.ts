@@ -10,8 +10,46 @@ const openai = createOpenAI({
   baseURL: process.env.LLM_BASE_URL || "https://api.z.ai/api/paas/v4",
 });
 
+const ModelMessageSchema = z.object({
+  role: z.enum(["user", "assistant", "system", "tool"]),
+  content: z.string().optional(),
+  parts: z.array(z.any()).optional(),
+}).refine(m => m.content !== undefined || m.parts !== undefined, {
+  message: "Message must have either content or parts"
+});
+
 export async function POST(req: Request) {
-  const { messages, userLocation } = await req.json();
+  const json = await req.json();
+  console.log("Incoming request body:", JSON.stringify(json, null, 2));
+  
+  let messages = json.messages;
+  let userLocation = json.userLocation;
+
+  // Handle case where a single message is sent as 'text' or 'content'
+  if (!messages && (json.text || json.content)) {
+    messages = [{ role: 'user', content: json.text || json.content }];
+  } else if (messages && !Array.isArray(messages)) {
+    // Handle case where messages is a single object
+    messages = [messages];
+  }
+
+  // Ensure messages is at least an empty array for validation
+  const messagesToValidate = messages || [];
+
+  const messagesValidation = z.array(ModelMessageSchema).safeParse(messagesToValidate);
+  if (!messagesValidation.success) {
+    console.error("Validation failed:", messagesValidation.error.format());
+    return new Response(
+      JSON.stringify({
+        type: "error",
+        errorText: `Invalid prompt: The messages do not match the ModelMessage[] schema. ${messagesValidation.error.message}`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Use the validated messages
+  const finalMessages = messagesValidation.data;
 
   const locationContext = userLocation 
     ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
@@ -19,7 +57,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: openai(process.env.LLM_MODEL || "glm-4.7-flash"),
-    messages,
+    messages: finalMessages,
     system: `You are a helpful assistant that can search for restaurants and add events to the user's calendar.
     Use search_restaurant to find places and add_calendar_event to schedule them.
     
@@ -56,6 +94,6 @@ export async function POST(req: Request) {
   });
 
   return result.toUIMessageStreamResponse({
-    originalMessages: messages,
+    originalMessages: finalMessages,
   });
 }

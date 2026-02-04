@@ -10,6 +10,15 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        position => { setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }) },
+        error => { console.error("Error getting location", error); }
+      );
+    }
+  }, []);
+
   const { messages, setMessages, status, sendMessage, addToolOutput } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
@@ -38,11 +47,7 @@ export default function Home() {
 
     setError(null);
     try {
-      await sendMessage({ text: input }, {
-        body: {
-          userLocation
-        }
-      });
+      await sendMessage({ text: input }, { body: { userLocation } });
       setInput("");
     } catch (err: any) {
       setError(err.message || "Failed to send message");
@@ -115,12 +120,7 @@ export default function Home() {
               )}
             </button>
           </div>
-          {userLocation && (
-            <p className="text-xs text-slate-500 flex items-center gap-1">
-              <MapPin size={12} />
-              Location: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
-            </p>
-          )}
+          {userLocation && (<p className="text-xs text-slate-500 flex items-center gap-1"><MapPin size={12} />Location: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}</p>)}
         </form>
       </div>
 

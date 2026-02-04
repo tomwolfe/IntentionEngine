@@ -1,16 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plan, Step } from "@/lib/schema";
 
 export default function Home() {
   const [intent, setIntent] = useState("");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [auditLogId, setAuditLogId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState<number | null>(null);
   const [results, setResults] = useState<Record<number, any>>({});
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        (err) => {
+          console.error("Error getting location:", err);
+        }
+      );
+    }
+  }, []);
 
   async function handleGeneratePlan() {
     setLoading(true);
@@ -21,7 +38,7 @@ export default function Home() {
       const res = await fetch("/api/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intent }),
+        body: JSON.stringify({ intent, user_location: userLocation }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.details || data.error);

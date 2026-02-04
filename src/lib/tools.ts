@@ -1,24 +1,12 @@
 import { RestaurantResultSchema } from "./schema";
 
-export async function search_restaurant(params: { cuisine?: string; location: string }) {
-  console.log(`Searching for ${params.cuisine || 'restaurants'} in ${params.location}...`);
+export async function search_restaurant(params: { cuisine?: string; lat: number; lon: number }) {
+  const { cuisine, lat, lon } = params;
+  console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}...`);
 
   try {
-    // 1. Geocoding with Nominatim
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(params.location)}`;
-    const geoRes = await fetch(nominatimUrl, {
-      headers: { 'User-Agent': 'IntentionEngine/1.0' }
-    });
-    const geoData = await geoRes.json();
-
-    if (!geoData || geoData.length === 0) {
-      return { success: false, error: "Location not found" };
-    }
-
-    const { lat, lon } = geoData[0];
-
     // 2. Overpass Query
-    const cuisineFilter = params.cuisine ? `["cuisine"~"${params.cuisine}",i]` : '';
+    const cuisineFilter = cuisine ? `["cuisine"~"${cuisine}",i]` : '';
     const query = `
       [out:json][timeout:25];
       (

@@ -5,7 +5,7 @@ import { PlanSchema } from "@/lib/schema";
 
 export async function POST(req: NextRequest) {
   try {
-    const { intent } = await req.json();
+    const { intent, user_location } = await req.json();
 
     if (!intent) {
       return NextResponse.json({ error: "Intent is required" }, { status: 400 });
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const auditLog = await createAuditLog(intent);
 
     try {
-      const plan = await generatePlan(intent);
+      const plan = await generatePlan(intent, user_location);
       
       // Secondary validation just in case
       PlanSchema.parse(plan);

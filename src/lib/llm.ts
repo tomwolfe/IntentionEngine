@@ -1,9 +1,13 @@
 import { Plan, PlanSchema } from "./schema";
 
-export async function generatePlan(intent: string): Promise<Plan> {
+export async function generatePlan(intent: string, userLocation?: { lat: number; lng: number } | null): Promise<Plan> {
   const apiKey = process.env.LLM_API_KEY;
   const baseUrl = process.env.LLM_BASE_URL || "https://api.openai.com/v1";
   const model = process.env.LLM_MODEL || "glm-4.7-flash";
+
+  const locationContext = userLocation 
+    ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
+    : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for confirmation or use a sensible default like London (51.5074, -0.1278).";
 
   if (!apiKey) {
     // For demonstration purposes if no API key is provided, we return a mock plan
@@ -15,7 +19,11 @@ export async function generatePlan(intent: string): Promise<Plan> {
         ordered_steps: [
           {
             tool_name: "search_restaurant",
-            parameters: { cuisine: "Italian", location: "nearby" },
+            parameters: { 
+              cuisine: "Italian", 
+              lat: userLocation?.lat || 51.5074, 
+              lon: userLocation?.lng || -0.1278 
+            },
             requires_confirmation: false,
             description: "Search for a highly-rated Italian restaurant nearby.",
           },
@@ -63,9 +71,12 @@ export async function generatePlan(intent: string): Promise<Plan> {
             "summary": "string"
           }
 
+          Context:
+          ${locationContext}
+
           Available tools:
-          - search_restaurant(cuisine, location)
-          - add_calendar_event(title, start_time, end_time)
+          - search_restaurant(cuisine, lat, lon)
+          - add_calendar_event(title, start_time, end_time, location)
           - send_message(recipient, body)
 
           Return ONLY pure JSON. No free text.`

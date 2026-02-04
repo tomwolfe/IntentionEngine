@@ -49,13 +49,25 @@ export async function generatePlan(intent: string): Promise<Plan> {
           role: "system",
           content: `You are an Intention Engine. Convert user intent into a structured JSON plan.
           Follow this schema strictly:
-          ${JSON.stringify(PlanSchema.shape)}
-          
+          {
+            "intent_type": "string (e.g., 'dining', 'scheduling', 'communication')",
+            "constraints": ["string array of requirements"],
+            "ordered_steps": [
+              {
+                "tool_name": "string",
+                "parameters": { "param_name": "value" },
+                "requires_confirmation": true/false,
+                "description": "string"
+              }
+            ],
+            "summary": "string"
+          }
+
           Available tools:
           - search_restaurant(cuisine, location)
           - add_calendar_event(title, start_time, end_time)
           - send_message(recipient, body)
-          
+
           Return ONLY pure JSON. No free text.`
         },
         {

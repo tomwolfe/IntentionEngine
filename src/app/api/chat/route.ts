@@ -10,13 +10,28 @@ const openai = createOpenAI({
   baseURL: process.env.LLM_BASE_URL || "https://api.z.ai/api/paas/v4",
 });
 
-const ModelMessageSchema = z.object({
-  role: z.enum(["user", "assistant", "system", "tool"]),
-  content: z.string().optional(),
-  parts: z.array(z.any()).optional(),
-}).refine(m => m.content !== undefined || m.parts !== undefined, {
-  message: "Message must have either content or parts"
-});
+const ModelMessageSchema = z.union([
+  z.object({
+    role: z.literal("user"),
+    content: z.string().optional(),
+    parts: z.array(z.any()).optional(),
+  }),
+  z.object({
+    role: z.literal("assistant"),
+    content: z.string().optional(),
+    parts: z.array(z.any()).optional(),
+    tool_calls: z.array(z.any()).optional(),
+  }),
+  z.object({
+    role: z.literal("system"),
+    content: z.string().optional(),
+  }),
+  z.object({
+    role: z.literal("tool"),
+    content: z.string().optional(),
+    tool_results: z.array(z.any()).optional(),
+  }),
+]);
 
 export async function POST(req: Request) {
   const json = await req.json();
@@ -57,7 +72,7 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: openai(process.env.LLM_MODEL || "glm-4.7-flash"),
-    messages: finalMessages,
+    messages: finalMessages as any,
     system: `You are a helpful assistant that can search for restaurants and add events to the user's calendar.
     Use search_restaurant to find places and add_calendar_event to schedule them.
     
@@ -94,6 +109,6 @@ export async function POST(req: Request) {
   });
 
   return result.toUIMessageStreamResponse({
-    originalMessages: finalMessages,
+    originalMessages: finalMessages as any,
   });
 }

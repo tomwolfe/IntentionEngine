@@ -6,6 +6,7 @@ const DownloadIcsSchema = z.object({
   start: z.string().min(1),
   end: z.string().optional().nullable(),
   location: z.string().optional().default(''),
+  description: z.string().optional().default(''),
 });
 
 function formatICalDate(date: Date): string {
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid parameters", details: validatedParams.error.format() }, { status: 400 });
   }
 
-  const { title, start: startStr, end: endStr, location } = validatedParams.data;
+  const { title, start: startStr, end: endStr, location, description } = validatedParams.data;
 
   const startDate = parseDateTime(startStr);
   let endDate = endStr ? parseDateTime(endStr) : new Date(startDate.getTime() + 60 * 60 * 1000);
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
     `DTSTART:${formatICalDate(startDate)}`,
     `DTEND:${formatICalDate(endDate)}`,
     `LOCATION:${location}`,
+    `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
     'END:VEVENT',
     'END:VCALENDAR'
   ].join('\r\n');

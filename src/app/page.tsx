@@ -152,18 +152,30 @@ export default function Home() {
                             const output = toolInvocation.output as any;
                             return (
                               <>
-                                {toolName === 'search_restaurant' && output.success && Array.isArray(output.result) ? (
-                                  <div className="space-y-2">
-                                    {output.result.map((r: any, i: number) => (
-                                      <div key={i} className="flex items-center justify-between p-2 border rounded bg-slate-50">
-                                        <div>
-                                          <p className="font-bold text-sm">{r.name}</p>
-                                          <p className="text-xs text-slate-500">{r.address}</p>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : toolName === 'add_calendar_event' && output.success && output.result?.download_url ? (
+                                                                {toolName === 'search_restaurant' && output.success && Array.isArray(output.result) ? (
+                                                                  <div className="space-y-2">
+                                                                    {output.result.map((r: any, i: number) => (
+                                                                      <div key={i} className="flex items-center justify-between p-2 border rounded bg-slate-50">
+                                                                        <div>
+                                                                          <p className="font-bold text-sm">{r.name}</p>
+                                                                          <p className="text-xs text-slate-500">{r.address}</p>
+                                                                        </div>
+                                                                        <button
+                                                                          onClick={() => {
+                                                                            const time = "7 PM"; // Default or extracted from previous messages
+                                                                            sendMessage({ text: `I've selected ${r.name} at ${r.address}. Please add this to my calendar for tonight at ${time}.` }, {
+                                                                              body: { userLocation }
+                                                                            });
+                                                                          }}
+                                                                          className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition-colors"
+                                                                        >
+                                                                          Select
+                                                                        </button>
+                                                                      </div>
+                                                                    ))}
+                                                                  </div>
+                                                                ) :
+                                 toolName === 'add_calendar_event' && output.success && output.result?.download_url ? (
                                   <div className="py-2">
                                     <a 
                                       href={output.result.download_url}

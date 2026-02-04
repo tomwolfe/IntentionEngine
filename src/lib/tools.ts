@@ -9,9 +9,48 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
     })
   : null;
 
-export async function search_restaurant(params: { cuisine?: string; lat: number; lon: number }) {
-  const { cuisine, lat, lon } = params;
+export async function geocode_location(params: { location: string }) {
+  console.log(`Geocoding location: ${params.location}...`);
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(params.location)}&format=json&limit=1`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'IntentionEngine/1.0'
+      }
+    });
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        success: true,
+        result: {
+          lat: parseFloat(data[0].lat),
+          lon: parseFloat(data[0].lon)
+        }
+      };
+    }
+    return { success: false, error: "Location not found" };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string }) {
+  let { cuisine, lat, lon, location } = params;
   
+  if ((lat === undefined || lon === undefined) && location) {
+    const geo = await geocode_location({ location });
+    if (geo.success && geo.result) {
+      lat = geo.result.lat;
+      lon = geo.result.lon;
+    } else {
+      return { success: false, error: "Could not geocode location and no coordinates provided." };
+    }
+  }
+
+  if (lat === undefined || lon === undefined) {
+    return { success: false, error: "Coordinates are required for restaurant search." };
+  }
+
   // Cache key based on cuisine and rounded coordinates (approx 100m precision)
   const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(3)}:${lon.toFixed(3)}`;
 
@@ -120,14 +159,26 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
   }
 }
 
-export async function add_calendar_event(params: { title: string; start_time: string; end_time: string; location?: string }) {
+export async function add_calendar_event(params: { 
+  title: string; 
+  start_time: string; 
+  end_time: string; 
+  location?: string;
+  restaurant_name?: string;
+  restaurant_address?: string;
+}) {
   console.log(`Adding calendar event: ${params.title} from ${params.start_time} to ${params.end_time}...`);
   
+  const description = (params.restaurant_name || params.restaurant_address)
+    ? `Restaurant: ${params.restaurant_name || 'N/A'}\nAddress: ${params.restaurant_address || 'N/A'}`
+    : "";
+
   const queryParams = new URLSearchParams({
     title: params.title,
     start: params.start_time,
     end: params.end_time,
-    location: params.location || ""
+    location: params.location || params.restaurant_address || "",
+    description: description
   });
 
   return {
@@ -142,6 +193,7 @@ export async function add_calendar_event(params: { title: string; start_time: st
 export const TOOLS: Record<string, Function> = {
   search_restaurant,
   add_calendar_event,
+  geocode_location,
 };
 
 export async function executeTool(tool_name: string, parameters: any) {

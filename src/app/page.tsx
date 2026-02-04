@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { Trash2, Calendar, MapPin, Loader2, Settings, Zap, Brain } from "lucide-react";
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, Message } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, UIMessage } from "ai";
 import { LocalLLMEngine, LocalModel } from "@/lib/local-llm-engine";
 
 class LocalProvider {
@@ -18,6 +18,8 @@ class LocalProvider {
     return this.engine;
   }
 }
+
+const localProvider = new LocalProvider();
 
 function ModelSettings({ 
   selectedModel, 
@@ -151,7 +153,7 @@ export default function Home() {
     if (isSimple) {
       setIsLocalLoading(true);
       try {
-        const userMsg: Message = { id: Math.random().toString(), role: 'user', content: currentInput, parts: [{ type: 'text', text: currentInput }] };
+        const userMsg: UIMessage = { id: Math.random().toString(), role: 'user', parts: [{ type: 'text', text: currentInput }] };
         setMessages(prev => [...prev, userMsg]);
 
         const engine = await localProvider.getEngine(setLoadProgress);
@@ -162,15 +164,15 @@ export default function Home() {
         
         const response = await engine.generateStream(currentInput, messages.map(m => ({
           role: m.role,
-          content: m.content
+          content: m.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('')
         })), (text) => {
           fullText = text;
           setMessages(prev => {
             const last = prev[prev.length - 1];
             if (last && last.role === 'assistant' && last.id === assistantId) {
-              return [...prev.slice(0, -1), { ...last, content: text, parts: [{ type: 'text', text }] }];
+              return [...prev.slice(0, -1), { ...last, parts: [{ type: 'text', text }] }];
             }
-            return [...prev, { id: assistantId, role: 'assistant', content: text, parts: [{ type: 'text', text }] }];
+            return [...prev, { id: assistantId, role: 'assistant', parts: [{ type: 'text', text }] }];
           });
         });
 

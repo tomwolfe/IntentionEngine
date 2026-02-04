@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, tool, stepCountIs, convertToCoreMessages } from "ai";
+import { streamText, tool, stepCountIs, convertToModelMessages } from "ai";
 import { z } from "zod";
 import { search_restaurant, add_calendar_event } from "@/lib/tools";
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       return new Response("No messages provided", { status: 400 });
     }
 
-    const coreMessages = convertToCoreMessages(messages);
+    const coreMessages = await convertToModelMessages(messages);
 
     const locationContext = userLocation 
       ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     console.log(`Using model: ${modelName} with base URL: ${process.env.LLM_BASE_URL || "https://api.z.ai/api/paas/v4"}`);
 
     const result = streamText({
-      model: openai(modelName),
+      model: openai.chat(modelName),
       messages: coreMessages,
       system: `You are a helpful assistant that can search for restaurants and add events to the user's calendar.
       Use search_restaurant to find places and add_calendar_event to schedule them.

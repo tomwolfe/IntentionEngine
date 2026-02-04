@@ -39,7 +39,7 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
     // any restaurant within 5km as a fallback to ensure results are returned.
     const query = cuisine 
       ? `
-        [out:json][timeout:25];
+        [out:json][timeout:10];
         (
           nwr["amenity"="restaurant"]["cuisine"~"${cuisine}",i](around:10000,${lat},${lon});
           nwr["amenity"="restaurant"](around:5000,${lat},${lon});
@@ -47,7 +47,7 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
         out center 10;
       `
       : `
-        [out:json][timeout:25];
+        [out:json][timeout:10];
         nwr["amenity"="restaurant"](around:10000,${lat},${lon});
         out center 10;
       `;
@@ -55,7 +55,7 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
     const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const overpassRes = await fetch(overpassUrl, { signal: controller.signal });
     clearTimeout(timeoutId);

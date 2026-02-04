@@ -4,6 +4,8 @@ import { createAuditLog, updateAuditLog } from "@/lib/audit";
 import { PlanSchema } from "@/lib/schema";
 import { z } from "zod";
 
+export const runtime = "edge";
+
 const IntentRequestSchema = z.object({
   intent: z.string().min(1),
   user_location: z.object({

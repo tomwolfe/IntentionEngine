@@ -3,6 +3,8 @@ import { getAuditLog, updateAuditLog } from "@/lib/audit";
 import { executeTool } from "@/lib/tools";
 import { z } from "zod";
 
+export const runtime = "edge";
+
 const ExecuteRequestSchema = z.object({
   audit_log_id: z.string().min(1),
   step_index: z.number().min(0),

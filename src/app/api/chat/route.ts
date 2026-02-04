@@ -4,6 +4,7 @@ import { z } from "zod";
 import { search_restaurant, add_calendar_event } from "@/lib/tools";
 import { env } from "@/lib/config";
 
+export const runtime = "edge";
 export const maxDuration = 30;
 
 const openai = createOpenAI({
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
           },
         }),
       },
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(3),
     });
 
     return result.toUIMessageStreamResponse({

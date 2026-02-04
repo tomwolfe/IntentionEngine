@@ -6,21 +6,49 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
 
   try {
     // 2. Overpass Query
-    const cuisineFilter = cuisine ? `["cuisine"~"${cuisine}",i]` : '';
-    const query = `
-      [out:json][timeout:25];
-      (
-        node["amenity"="restaurant"]${cuisineFilter}(around:5000,${lat},${lon});
-        way["amenity"="restaurant"]${cuisineFilter}(around:5000,${lat},${lon});
-      );
-      out center;
-    `;
+    // We use nwr (node, way, relation) to capture all restaurant types.
+    // We use a union to search for the specific cuisine within 10km AND
+    // any restaurant within 5km as a fallback to ensure results are returned.
+    const query = cuisine 
+      ? `
+        [out:json][timeout:25];
+        (
+          nwr["amenity"="restaurant"]["cuisine"~"${cuisine}",i](around:10000,${lat},${lon});
+          nwr["amenity"="restaurant"](around:5000,${lat},${lon});
+        );
+        out center 10;
+      `
+      : `
+        [out:json][timeout:25];
+        nwr["amenity"="restaurant"](around:10000,${lat},${lon});
+        out center 10;
+      `;
 
     const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     const overpassRes = await fetch(overpassUrl);
-    const overpassData = await overpassRes.json();
+    
+    if (!overpassRes.ok) {
+      throw new Error(`Overpass API error: ${overpassRes.statusText}`);
+    }
 
-    const results = overpassData.elements.map((el: any) => {
+    const overpassData = await overpassRes.json();
+    let elements = overpassData.elements || [];
+
+    // Prioritize results that match the cuisine if provided
+    if (cuisine) {
+      const regex = new RegExp(cuisine, 'i');
+      elements.sort((a: any, b: any) => {
+        const aCuisine = a.tags?.cuisine || '';
+        const bCuisine = b.tags?.cuisine || '';
+        const aMatches = regex.test(aCuisine);
+        const bMatches = regex.test(bCuisine);
+        if (aMatches && !bMatches) return -1;
+        if (!aMatches && bMatches) return 1;
+        return 0;
+      });
+    }
+
+    const results = elements.map((el: any) => {
       const name = el.tags.name || "Unknown Restaurant";
       const addr = [
         el.tags["addr:housenumber"],
@@ -46,6 +74,7 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
       result: results
     };
   } catch (error: any) {
+    console.error("Error in search_restaurant:", error);
     return { success: false, error: error.message };
   }
 }

@@ -125,6 +125,15 @@ export default function Home() {
     localStorage.removeItem("chat_history");
   };
 
+  /**
+   * Hybrid Routing Logic: Simple intents are processed locally to save GLM tokens.
+   * Simple = Short messages (<100 chars) that don't imply tool use (search/add).
+   */
+  const isSimpleIntent = (input: string) => {
+    const normalized = input.toLowerCase();
+    return input.length < 100 && !normalized.includes("search") && !normalized.includes("add");
+  };
+
   const createAuditLog = async (intent: string, outcome: string) => {
     try {
       await fetch("/api/audit", {
@@ -145,12 +154,7 @@ export default function Home() {
     setInput("");
     setError(null);
 
-    // Hybrid Routing Logic
-    const isSimple = currentInput.length < 100 && 
-                     !currentInput.toLowerCase().includes("search") && 
-                     !currentInput.toLowerCase().includes("add");
-
-    if (isSimple) {
+    if (isSimpleIntent(currentInput)) {
       setIsLocalLoading(true);
       try {
         const userMsg: UIMessage = { id: Math.random().toString(), role: 'user', parts: [{ type: 'text', text: currentInput }] };

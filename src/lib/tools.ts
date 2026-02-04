@@ -43,12 +43,13 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     return { success: false, error: "Coordinates are required for restaurant search." };
   }
 
-  // Cache key based on cuisine and rounded coordinates (approx 100m precision)
-  const cacheKey = `restaurant:${cuisine}:${lat.toFixed(2)}:${lon.toFixed(2)}`;
+  // Redis cache key: restaurant:{cuisine || 'any'}:{lat.2f}:{lon.2f}
+  // TTL: 3600 seconds (1 hour)
+  const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}`;
 
   if (redis) {
     try {
-      const { data: cached } = await redis.get(cacheKey) as any;
+      const cached = await redis.get(cacheKey);
       if (cached) {
         console.log(`Using cached results for ${cacheKey}`);
         return {

@@ -1,14 +1,96 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
-import { Trash2, Calendar, MapPin, Loader2 } from "lucide-react";
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
+import { Trash2, Calendar, MapPin, Loader2, Settings, Zap, Brain } from "lucide-react";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, Message } from "ai";
+import { LocalLLMEngine, LocalModel } from "@/lib/local-llm-engine";
+
+class LocalProvider {
+  private engine: LocalLLMEngine | null = null;
+  
+  async getEngine(onProgress: (text: string) => void) {
+    if (!this.engine) {
+      this.engine = new LocalLLMEngine((report) => {
+        onProgress(report.text);
+      });
+    }
+    return this.engine;
+  }
+}
+
+function ModelSettings({ 
+  selectedModel, 
+  setSelectedModel, 
+  onClose 
+}: { 
+  selectedModel: LocalModel, 
+  setSelectedModel: (m: LocalModel) => void, 
+  onClose: () => void 
+}) {
+  return (
+    <div className="fixed inset-y-0 right-0 w-80 bg-white border-l shadow-2xl z-40 p-6 animate-in slide-in-from-right">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Settings size={20} /> Settings
+        </h2>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+      </div>
+      
+      <div className="space-y-6">
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-3">Local Model Engine</label>
+          <div className="grid gap-3">
+            <button
+              onClick={() => setSelectedModel("SmolLM2-135M-Instruct-q4f16_1-MLC")}
+              className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                selectedModel === "SmolLM2-135M-Instruct-q4f16_1-MLC" 
+                ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" 
+                : "border-slate-200 hover:border-slate-300 bg-slate-50"
+              }`}
+            >
+              <Zap size={18} />
+              <div>
+                <div className="font-bold text-sm">SmolLM2-135M</div>
+                <div className="text-xs opacity-70">Optimized for speed</div>
+              </div>
+            </button>
+            
+            <button
+              onClick={() => setSelectedModel("Phi-3.5-mini-instruct-q4f16_1-MLC")}
+              className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                selectedModel === "Phi-3.5-mini-instruct-q4f16_1-MLC" 
+                ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" 
+                : "border-slate-200 hover:border-slate-300 bg-slate-50"
+              }`}
+            >
+              <Brain size={18} />
+              <div>
+                <div className="font-bold text-sm">Phi-3.5-mini</div>
+                <div className="text-xs opacity-70">Higher intelligence</div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+          <p className="text-xs text-amber-800 leading-relaxed">
+            <strong>Note:</strong> Local models run entirely in your browser. The first load may take a moment to download weights (~100MB - 2GB).
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<LocalModel>("SmolLM2-135M-Instruct-q4f16_1-MLC");
+  const [loadProgress, setLoadProgress] = useState("");
+  const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -33,7 +115,7 @@ export default function Home() {
     },
   });
 
-  const isLoading = status === "streaming" || status === "submitted";
+  const isLoading = status === "streaming" || status === "submitted" || isLocalLoading;
 
   const handleClearChat = () => {
     setMessages([]);
@@ -41,16 +123,73 @@ export default function Home() {
     localStorage.removeItem("chat_history");
   };
 
+  const createAuditLog = async (intent: string, outcome: string) => {
+    try {
+      await fetch("/api/audit", {
+        method: "POST",
+        body: JSON.stringify({ intent, final_outcome: outcome }),
+        headers: { "Content-Type": "application/json" }
+      });
+    } catch (err) {
+      console.warn("Failed to create audit log for local execution", err);
+    }
+  };
+
   const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
+    const currentInput = input.trim();
+    setInput("");
     setError(null);
-    try {
-      await sendMessage({ text: input }, { body: { userLocation } });
-      setInput("");
-    } catch (err: any) {
-      setError(err.message || "Failed to send message");
+
+    // Hybrid Routing Logic
+    const isSimple = currentInput.length < 100 && 
+                     !currentInput.toLowerCase().includes("search") && 
+                     !currentInput.toLowerCase().includes("add");
+
+    if (isSimple) {
+      setIsLocalLoading(true);
+      try {
+        const userMsg: Message = { id: Math.random().toString(), role: 'user', content: currentInput, parts: [{ type: 'text', text: currentInput }] };
+        setMessages(prev => [...prev, userMsg]);
+
+        const engine = await localProvider.getEngine(setLoadProgress);
+        await engine.loadModel(selectedModel);
+        
+        const assistantId = Math.random().toString();
+        let fullText = "";
+        
+        const response = await engine.generateStream(currentInput, messages.map(m => ({
+          role: m.role,
+          content: m.content
+        })), (text) => {
+          fullText = text;
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'assistant' && last.id === assistantId) {
+              return [...prev.slice(0, -1), { ...last, content: text, parts: [{ type: 'text', text }] }];
+            }
+            return [...prev, { id: assistantId, role: 'assistant', content: text, parts: [{ type: 'text', text }] }];
+          });
+        });
+
+        await createAuditLog(currentInput, response);
+      } catch (err: any) {
+        console.error("Local execution failed:", err);
+        setError(`Local execution failed: ${err.message}. Falling back to cloud...`);
+        // Fallback to cloud if local fails (optional, but good for UX)
+        await sendMessage({ text: currentInput }, { body: { userLocation } });
+      } finally {
+        setIsLocalLoading(false);
+        setLoadProgress("");
+      }
+    } else {
+      try {
+        await sendMessage({ text: currentInput }, { body: { userLocation } });
+      } catch (err: any) {
+        setError(err.message || "Failed to send message");
+      }
     }
   };
 
@@ -67,18 +206,42 @@ export default function Home() {
   };
 
   return (
-    <main className="max-w-4xl mx-auto p-8">
+    <main className="max-w-4xl mx-auto p-8 relative">
+      {/* Sidebar Toggle */}
+      <button 
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className="fixed top-8 right-8 p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors z-50"
+      >
+        <Settings size={20} className={isSidebarOpen ? "animate-spin-slow" : ""} />
+      </button>
+
+      {/* Settings Sidebar */}
+      {isSidebarOpen && (
+        <ModelSettings 
+          selectedModel={selectedModel} 
+          setSelectedModel={setSelectedModel} 
+          onClose={() => setIsSidebarOpen(false)} 
+        />
+      )}
+
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Intention Engine</h1>
-        {messages.length > 0 && (
-          <button
-            onClick={handleClearChat}
-            className="flex items-center gap-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
-          >
-            <Trash2 size={16} />
-            Clear Chat
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          {loadProgress && (
+            <div className="text-[10px] font-mono text-slate-400 max-w-[200px] truncate">
+              {loadProgress}
+            </div>
+          )}
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              className="flex items-center gap-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
+            >
+              <Trash2 size={16} />
+              Clear Chat
+            </button>
+          )}
+        </div>
       </div>
       
       {error && (

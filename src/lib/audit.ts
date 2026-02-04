@@ -1,6 +1,5 @@
-import { Redis } from "@upstash/redis";
 import { Plan } from "./schema";
-import { env } from "./config";
+import { redis } from "./cache";
 
 export interface AuditLog {
   id: string;
@@ -19,13 +18,6 @@ export interface AuditLog {
   }>;
   final_outcome?: string;
 }
-
-const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
-  ? new Redis({
-      url: env.UPSTASH_REDIS_REST_URL,
-      token: env.UPSTASH_REDIS_REST_TOKEN,
-    })
-  : null;
 
 const AUDIT_LOG_PREFIX = "audit_log:";
 

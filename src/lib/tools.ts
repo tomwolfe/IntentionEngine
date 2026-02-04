@@ -1,13 +1,5 @@
 import { RestaurantResultSchema } from "./schema";
-import { Redis } from "@upstash/redis";
-import { env } from "./config";
-
-const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
-  ? new Redis({
-      url: env.UPSTASH_REDIS_REST_URL,
-      token: env.UPSTASH_REDIS_REST_TOKEN,
-    })
-  : null;
+import { redis } from "./cache";
 
 export async function geocode_location(params: { location: string }) {
   console.log(`Geocoding location: ${params.location}...`);
@@ -52,11 +44,11 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
   }
 
   // Cache key based on cuisine and rounded coordinates (approx 100m precision)
-  const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(3)}:${lon.toFixed(3)}`;
+  const cacheKey = `restaurant:${cuisine}:${lat.toFixed(2)}:${lon.toFixed(2)}`;
 
   if (redis) {
     try {
-      const cached = await redis.get(cacheKey);
+      const { data: cached } = await redis.get(cacheKey) as any;
       if (cached) {
         console.log(`Using cached results for ${cacheKey}`);
         return {

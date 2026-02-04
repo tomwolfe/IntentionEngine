@@ -24,6 +24,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^3.0.25",
     "@ai-sdk/react": "^3.0.71",
+    "@mlc-ai/web-llm": "^0.2.80",
     "@upstash/redis": "^1.36.2",
     "ai": "^6.0.69",
     "clsx": "^2.1.1",

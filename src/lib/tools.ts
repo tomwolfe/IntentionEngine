@@ -34,6 +34,17 @@ export async function geocode_location(params: { location: string }) {
   }
 }
 
+/**
+ * Redis Cache Strategy for Restaurant Search:
+ * - Key format: 'restaurant:{cuisine || 'any'}:{lat.toFixed(3)}:{lon.toFixed(3)}'
+ * - Precision: ~100m (lat/lon rounded to 3 decimal places)
+ * - TTL: 3600 seconds (1 hour)
+ * - Purpose: Reduce load on Overpass API and decrease latency for common searches.
+ * 
+ * Example Keys:
+ * - restaurant:pizza:40.712:-74.006
+ * - restaurant:any:34.052:-118.243
+ */
 export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string }) {
   let { cuisine, lat, lon, location } = params;
   

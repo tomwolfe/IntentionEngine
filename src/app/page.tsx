@@ -44,17 +44,17 @@ function ModelSettings({
           <label className="block text-sm font-semibold text-slate-700 mb-3">Local Model Engine</label>
           <div className="grid gap-3">
             <button
-              onClick={() => setSelectedModel("SmolLM2-135M-Instruct-q4f16_1-MLC")}
+              onClick={() => setSelectedModel("Phi-1.5-Instruct-q4f16_1-MLC")}
               className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
-                selectedModel === "SmolLM2-135M-Instruct-q4f16_1-MLC" 
+                selectedModel === "Phi-1.5-Instruct-q4f16_1-MLC" 
                 ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" 
                 : "border-slate-200 hover:border-slate-300 bg-slate-50"
               }`}
             >
-              <Zap size={18} />
+              <Brain size={18} />
               <div>
-                <div className="font-bold text-sm">SmolLM2-135M</div>
-                <div className="text-xs opacity-70">Optimized for speed</div>
+                <div className="font-bold text-sm">Phi-1.5</div>
+                <div className="text-xs opacity-70">Strong reasoning, small size</div>
               </div>
             </button>
             
@@ -89,7 +89,7 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<LocalModel>("SmolLM2-135M-Instruct-q4f16_1-MLC");
+  const [selectedModel, setSelectedModel] = useState<LocalModel>("Phi-1.5-Instruct-q4f16_1-MLC");
   const [loadProgress, setLoadProgress] = useState("");
   const [isLocalLoading, setIsLocalLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);

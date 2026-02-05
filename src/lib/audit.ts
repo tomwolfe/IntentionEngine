@@ -1,5 +1,15 @@
 import { Plan } from "./schema";
 import { redis } from "./cache";
+import { z } from "zod";
+
+export const AuditOutcomeSchema = z.object({
+  status: z.enum(["SUCCESS", "FAILURE", "PARTIAL_SUCCESS"]),
+  message: z.string(),
+  latency_ms: z.number().optional(),
+  tokens_used: z.number().optional(),
+});
+
+export type AuditOutcome = z.infer<typeof AuditOutcomeSchema>;
 
 export interface AuditLog {
   id: string;
@@ -16,7 +26,7 @@ export interface AuditLog {
     error?: string;
     confirmed_by_user?: boolean;
   }>;
-  final_outcome?: string;
+  final_outcome?: AuditOutcome | string;
 }
 
 const AUDIT_LOG_PREFIX = "audit_log:";
@@ -43,6 +53,15 @@ export async function updateAuditLog(id: string, update: Partial<AuditLog>): Pro
   if (redis) {
     const existing = await getAuditLog(id);
     if (existing) {
+      if (update.final_outcome && typeof update.final_outcome === "object") {
+        try {
+          AuditOutcomeSchema.parse(update.final_outcome);
+        } catch (err) {
+          console.error("Invalid audit outcome schema:", err);
+          throw new Error("Invalid audit outcome schema");
+        }
+      }
+      
       const updated = { ...existing, ...update };
       await redis.set(`${AUDIT_LOG_PREFIX}${id}`, JSON.stringify(updated), { ex: 86400 * 7 });
     }

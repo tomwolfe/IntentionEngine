@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAuditLog, updateAuditLog } from "@/lib/audit";
+import { createAuditLog, updateAuditLog, AuditOutcomeSchema } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "edge";
 
 const AuditRequestSchema = z.object({
   intent: z.string().min(1),
-  final_outcome: z.string().optional(),
+  final_outcome: z.union([z.string(), AuditOutcomeSchema]).optional(),
 });
 
 export async function POST(req: NextRequest) {

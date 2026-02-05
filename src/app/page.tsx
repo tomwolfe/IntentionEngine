@@ -5,6 +5,8 @@ import { useChat } from "@ai-sdk/react";
 import { Trash2, Calendar, MapPin, Loader2, Settings, Zap, Brain } from "lucide-react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, UIMessage } from "ai";
 import { LocalLLMEngine, LocalModel } from "@/lib/local-llm-engine";
+import { classifyIntent, IntentType } from "@/lib/intent-schema";
+import { AuditOutcome } from "@/lib/audit";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -125,16 +127,7 @@ export default function Home() {
     localStorage.removeItem("chat_history");
   };
 
-  /**
-   * Hybrid Routing Logic: Simple intents are processed locally to save GLM tokens.
-   * Simple = Short messages (<100 chars) that don't imply tool use (search/add).
-   */
-  const isSimpleIntent = (input: string) => {
-    const normalized = input.toLowerCase();
-    return input.length < 100 && !normalized.includes("search") && !normalized.includes("add");
-  };
-
-  const createAuditLog = async (intent: string, outcome: string) => {
+  const createAuditLog = async (intent: string, outcome: AuditOutcome | string) => {
     try {
       await fetch("/api/audit", {
         method: "POST",
@@ -154,7 +147,9 @@ export default function Home() {
     setInput("");
     setError(null);
 
-    if (isSimpleIntent(currentInput)) {
+    const classification = classifyIntent(currentInput);
+
+    if (classification.type === "SIMPLE") {
       setIsLocalLoading(true);
       try {
         const userMsg: UIMessage = { id: Math.random().toString(), role: 'user', parts: [{ type: 'text', text: currentInput }] };
@@ -180,7 +175,10 @@ export default function Home() {
           });
         });
 
-        await createAuditLog(currentInput, response);
+        await createAuditLog(currentInput, {
+          status: "SUCCESS",
+          message: response
+        });
       } catch (err: any) {
         console.error("Local execution failed:", err);
         setError(`Local execution failed: ${err.message}. Falling back to cloud...`);

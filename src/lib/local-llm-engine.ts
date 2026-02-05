@@ -1,6 +1,6 @@
 import { CreateMLCEngine, MLCEngine, MLCEngineConfig, InitProgressReport } from "@mlc-ai/web-llm";
 
-export type LocalModel = "Phi-1.5-Instruct-q4f16_1-MLC" | "Phi-3.5-mini-instruct-q4f16_1-MLC";
+export type LocalModel = "Phi-1.5-q4f16_1" | "Phi-3.5-mini-instruct-q4f16_1-MLC";
 
 export class LocalLLMEngine {
   private engine: MLCEngine | null = null;

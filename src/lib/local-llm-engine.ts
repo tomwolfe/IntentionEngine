@@ -1,13 +1,13 @@
 import { CreateMLCEngine, MLCEngine, MLCEngineConfig, InitProgressReport, AppConfig } from "@mlc-ai/web-llm";
 
-export type LocalModel = "Phi-1.5-q4f16_1-MLC" | "Phi-3.5-mini-instruct-q4f16_1-MLC";
+export type LocalModel = "phi-2-q4f16_1-MLC" | "Phi-3.5-mini-instruct-q4f16_1-MLC";
 
 const appConfig: AppConfig = {
   model_list: [
     {
-      model: "https://huggingface.co/mlc-ai/Phi-1.5-q4f16_1-MLC/resolve/main/",
-      model_id: "Phi-1.5-q4f16_1-MLC",
-      model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/phi-1_5-q4f16_1-ctx2k_cs1k-webgpu.wasm",
+      model: "https://huggingface.co/mlc-ai/phi-2-q4f16_1-MLC/resolve/main/",
+      model_id: "phi-2-q4f16_1-MLC",
+      model_lib: "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_80/phi-2-q4f16_1-ctx2k_cs1k-webgpu.wasm",
     },
     {
       model: "https://huggingface.co/mlc-ai/Phi-3.5-mini-instruct-q4f16_1-MLC/resolve/main/",

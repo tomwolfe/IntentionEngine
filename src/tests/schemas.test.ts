@@ -28,15 +28,15 @@ describe('ChatRequestSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('should reject missing content', () => {
-    const invalidRequest = {
+  it('should allow missing content', () => {
+    const validRequest = {
       messages: [
-        { role: 'user' }
+        { role: 'user', parts: [{ type: 'text', text: 'Hi' }] }
       ]
     };
     
-    const result = ChatRequestSchema.safeParse(invalidRequest);
-    expect(result.success).toBe(false);
+    const result = ChatRequestSchema.safeParse(validRequest);
+    expect(result.success).toBe(true);
   });
 
   it('should reject invalid coordinates', () => {

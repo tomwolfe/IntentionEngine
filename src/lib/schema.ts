@@ -33,7 +33,7 @@ export const ChatRequestSchema = z.object({
     z.object({
       id: z.string().optional(),
       role: z.enum(["user", "assistant", "system", "tool"]),
-      content: z.string(),
+      content: z.string().optional(),
       parts: z.array(z.any()).optional(),
     })
   ),

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       const messagesWithIds = messages.map((m) => ({
         ...m,
         id: m.id ?? Math.random().toString(),
-        parts: m.parts ?? [{ type: "text", text: m.content }],
+        parts: m.parts ?? [{ type: "text", text: m.content ?? "" }],
       }));
 
       const coreMessages = await convertToModelMessages(messagesWithIds as any);

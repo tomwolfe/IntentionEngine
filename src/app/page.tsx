@@ -154,7 +154,12 @@ export default function Home() {
     if (classification.type === "SIMPLE") {
       setIsLocalLoading(true);
       try {
-        const userMsg: UIMessage = { id: Math.random().toString(), role: 'user', parts: [{ type: 'text', text: currentInput }] };
+        const userMsg: UIMessage = { 
+          id: Math.random().toString(), 
+          role: 'user', 
+          content: currentInput,
+          parts: [{ type: 'text', text: currentInput }] 
+        };
         setMessages(prev => [...prev, userMsg]);
 
         const engine = await localProvider.getEngine(setLoadProgress);

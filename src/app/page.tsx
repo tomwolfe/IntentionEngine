@@ -157,7 +157,6 @@ export default function Home() {
         const userMsg: UIMessage = { 
           id: Math.random().toString(), 
           role: 'user', 
-          content: currentInput,
           parts: [{ type: 'text', text: currentInput }] 
         };
         setMessages(prev => [...prev, userMsg]);

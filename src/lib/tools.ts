@@ -7,7 +7,7 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
   return await withCircuitBreaker(service, async () => {
     const response = await fetch(url, options);
     if (!response.ok) {
-      if (response.status >= 500 && retries > 0) {
+      if ((response.status >= 500 || response.status === 429) && retries > 0) {
         await new Promise(resolve => setTimeout(resolve, backoff));
         return fetchWithRetry(url, options, service, retries - 1, backoff * 2);
       }

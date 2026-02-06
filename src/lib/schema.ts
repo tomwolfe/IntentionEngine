@@ -28,6 +28,19 @@ export const PlanSchema = z.object({
 export type Step = z.infer<typeof StepSchema>;
 export type Plan = z.infer<typeof PlanSchema>;
 
+export const ChatRequestSchema = z.object({
+  messages: z.array(
+    z.object({
+      role: z.enum(["user", "assistant", "system", "tool"]),
+      content: z.string(),
+    })
+  ),
+  userLocation: z.object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+  }).nullable().optional(),
+});
+
 export const IntentResponseSchema = z.object({
   plan: PlanSchema,
   audit_log_id: z.string(),

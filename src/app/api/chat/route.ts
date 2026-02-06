@@ -3,7 +3,8 @@ import { streamText, tool, stepCountIs, convertToModelMessages } from "ai";
 import { search_restaurant, add_calendar_event, geocode_location } from "@/lib/tools";
 import { env } from "@/lib/config";
 import { withReliability } from "@/lib/reliability";
-import { ChatRequestSchema, GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "@/lib/validation-schemas";
+import { ChatRequestSchema } from "@/lib/schema";
+import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "@/lib/validation-schemas";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "edge";

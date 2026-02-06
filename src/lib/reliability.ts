@@ -93,24 +93,50 @@ export async function withReliability(
 
   rateLimitCache.set(ip, currentRequests + 1);
 
-  // Timeout handling
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
+  const pathname = req.nextUrl?.pathname || (req.url ? new URL(req.url, 'http://localhost').pathname : 'unknown');
+  const breakerName = `route:${pathname}`;
 
   try {
-    const responsePromise = handler();
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      controller.signal.addEventListener('abort', () => reject(new Error('Request Timeout')));
-    });
+    return await withCircuitBreaker(breakerName, async () => {
+      // Timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
 
-    const response = await Promise.race([responsePromise, timeoutPromise]) as NextResponse;
-    clearTimeout(timeoutId);
-    return response;
+      try {
+        const responsePromise = handler();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          controller.signal.addEventListener('abort', () => reject(new Error('Request Timeout')));
+        });
+
+        const response = await Promise.race([responsePromise, timeoutPromise]) as NextResponse;
+        clearTimeout(timeoutId);
+
+        if (response.status >= 500) {
+          // We want the circuit breaker to record this as a failure
+          // but we also want to return the original response if possible.
+          // However, withCircuitBreaker records failure on throw.
+          // To satisfy both, we'll throw a special error that we catch outside.
+          const error = new Error(`Handler returned ${response.status}`);
+          (error as any).response = response;
+          throw error;
+        }
+
+        return response;
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    });
   } catch (error: any) {
-    clearTimeout(timeoutId);
+    if (error.response) {
+      return error.response;
+    }
     if (error.message === 'Request Timeout') {
       return NextResponse.json({ error: `Request timed out after ${options.timeoutMs / 1000} seconds` }, { status: 504 });
     }
-    throw error;
+    if (error.message.includes('Circuit breaker')) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -25,14 +25,6 @@ export const AddCalendarEventSchema = z.object({
 });
 
 // API Request Schemas
-export const ChatRequestSchema = z.object({
-  messages: z.array(z.any()),
-  userLocation: z.object({
-    lat: z.number().min(-90).max(90),
-    lng: z.number().min(-180).max(180),
-  }).nullable().optional(),
-});
-
 export const IntentRequestSchema = z.object({
   intent: z.string().min(1).max(2000).trim(),
   user_location: z.object({

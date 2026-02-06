@@ -1,49 +1,10 @@
 import { RestaurantResultSchema } from "./schema";
-import { cache } from "./cache";
+import { cache, CACHE_TTLS } from "./cache";
 import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "./validation-schemas";
+import { withCircuitBreaker } from "./reliability";
 
-// Circuit Breaker State
-const circuitBreaker = {
-  nominatim: { failures: 0, lastFailure: 0, state: 'CLOSED' as 'CLOSED' | 'OPEN' | 'HALF-OPEN' },
-  overpass: { failures: 0, lastFailure: 0, state: 'CLOSED' as 'CLOSED' | 'OPEN' | 'HALF-OPEN' },
-};
-
-const BREAKER_THRESHOLD = 5;
-const RESET_TIMEOUT = 30000; // 30 seconds
-
-function checkBreaker(service: keyof typeof circuitBreaker) {
-  const breaker = circuitBreaker[service];
-  if (breaker.state === 'OPEN') {
-    if (Date.now() - breaker.lastFailure > RESET_TIMEOUT) {
-      breaker.state = 'HALF-OPEN';
-      return true;
-    }
-    return false;
-  }
-  return true;
-}
-
-function recordSuccess(service: keyof typeof circuitBreaker) {
-  const breaker = circuitBreaker[service];
-  breaker.failures = 0;
-  breaker.state = 'CLOSED';
-}
-
-function recordFailure(service: keyof typeof circuitBreaker) {
-  const breaker = circuitBreaker[service];
-  breaker.failures++;
-  breaker.lastFailure = Date.now();
-  if (breaker.failures >= BREAKER_THRESHOLD) {
-    breaker.state = 'OPEN';
-  }
-}
-
-async function fetchWithRetry(url: string, options: RequestInit, service: keyof typeof circuitBreaker, retries = 3, backoff = 1000): Promise<Response> {
-  if (!checkBreaker(service)) {
-    throw new Error(`Circuit breaker for ${service} is OPEN`);
-  }
-
-  try {
+async function fetchWithRetry(url: string, options: RequestInit, service: string, retries = 3, backoff = 1000): Promise<Response> {
+  return await withCircuitBreaker(service, async () => {
     const response = await fetch(url, options);
     if (!response.ok) {
       if (response.status >= 500 && retries > 0) {
@@ -52,16 +13,8 @@ async function fetchWithRetry(url: string, options: RequestInit, service: keyof 
       }
       throw new Error(`API error: ${response.statusText}`);
     }
-    recordSuccess(service);
     return response;
-  } catch (error) {
-    recordFailure(service);
-    if (retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, backoff));
-      return fetchWithRetry(url, options, service, retries - 1, backoff * 2);
-    }
-    throw error;
-  }
+  });
 }
 
 export async function geocode_location(params: any) {
@@ -214,7 +167,7 @@ export async function search_restaurant(params: any) {
     }).filter(Boolean).slice(0, 5);
 
     if (results.length > 0) {
-      await cache.set(cacheKey, results, 3600);
+      await cache.set(cacheKey, results, CACHE_TTLS.RESTAURANTS);
     }
 
     return {

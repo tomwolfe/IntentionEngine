@@ -15,6 +15,10 @@ const memoryCache = new LRUCache<string, any>({
   ttl: 1000 * 60 * 60, // 1 hour default TTL
 });
 
+export const CACHE_TTLS = {
+  RESTAURANTS: 86400, // 24 hours
+};
+
 export const cache = {
   async get<T>(key: string): Promise<T | null> {
     if (redis) {

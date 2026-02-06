@@ -1,6 +1,19 @@
 import { Plan } from "./schema";
-import { cache } from "./cache";
 import { z } from "zod";
+import { Redis } from "@upstash/redis";
+import { env } from "./config";
+import { cache } from "./cache";
+import crypto from "crypto";
+
+const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
+  ? new Redis({
+      url: env.UPSTASH_REDIS_REST_URL,
+      token: env.UPSTASH_REDIS_REST_TOKEN,
+    })
+  : null;
+
+// In-memory fallback for idempotency in tests
+const memoryIdempotency = new Map<string, string>();
 
 export const AuditOutcomeSchema = z.object({
   status: z.enum(["SUCCESS", "FAILURE", "PARTIAL_SUCCESS"]),
@@ -30,8 +43,26 @@ export interface AuditLog {
 }
 
 const AUDIT_LOG_PREFIX = "audit_log:";
+const IDEMPOTENCY_PREFIX = "idempotency:";
 
 export async function createAuditLog(intent: string): Promise<AuditLog> {
+  const intentHash = crypto.createHash("sha256").update(intent).digest("hex");
+  const idempotencyKey = `${IDEMPOTENCY_PREFIX}${intentHash}`;
+
+  if (redis) {
+    const existingId = await redis.get<string>(idempotencyKey);
+    if (existingId) {
+      const existingLog = await getAuditLog(existingId);
+      if (existingLog) return existingLog;
+    }
+  } else {
+    const existingId = memoryIdempotency.get(idempotencyKey);
+    if (existingId) {
+      const existingLog = await getAuditLog(existingId);
+      if (existingLog) return existingLog;
+    }
+  }
+
   const id = Math.random().toString(36).substring(7);
   const log: AuditLog = {
     id,
@@ -40,7 +71,16 @@ export async function createAuditLog(intent: string): Promise<AuditLog> {
     steps: [],
   };
 
-  await cache.set(`${AUDIT_LOG_PREFIX}${id}`, log, 86400 * 7); // Store for 7 days
+  // Persist the log using cache (which handles redis/memory fallback)
+  await cache.set(`${AUDIT_LOG_PREFIX}${id}`, log, 86400); // 24 hours
+
+  // Set idempotency key
+  if (redis) {
+    await redis.set(idempotencyKey, id, { ex: 60 });
+  } else {
+    memoryIdempotency.set(idempotencyKey, id);
+    setTimeout(() => memoryIdempotency.delete(idempotencyKey), 60000);
+  }
 
   return log;
 }
@@ -58,7 +98,7 @@ export async function updateAuditLog(id: string, update: Partial<AuditLog>): Pro
     }
     
     const updated = { ...existing, ...update };
-    await cache.set(`${AUDIT_LOG_PREFIX}${id}`, updated, 86400 * 7);
+    await cache.set(`${AUDIT_LOG_PREFIX}${id}`, updated, 86400);
   }
 }
 

@@ -44,18 +44,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
     throw new Error("LLM_API_KEY is not set and no mock available for this intent.");
   }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        {
-          role: "system",
-          content: `You are an Intention Engine. Convert user intent into a structured JSON plan.
+  const systemPrompt = `You are an Intention Engine. Convert user intent into a structured JSON plan.
           Follow this schema strictly:
           {
             "intent_type": "string (e.g., 'dining', 'scheduling', 'communication')",
@@ -87,25 +76,42 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
              - NEVER suggest pizza or Mexican cuisine.
           4. When adding a calendar event for a restaurant, include the 'restaurant_name' and 'restaurant_address' in the parameters.
 
-          Return ONLY pure JSON. No free text.`
-        },
-        {
-          role: "user",
-          content: intent
-        }
-      ],
-      response_format: { type: "json_object" }
-    }),
-  });
+          Return ONLY pure JSON. No free text.`;
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`LLM call failed: ${error}`);
+  async function callLLM(modelName: string, retries = 1, currentDelay = 1000): Promise<Plan> {
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: intent }
+          ],
+          response_format: { type: "json_object" }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`LLM call failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const planJson = JSON.parse(data.choices[0].message.content);
+      return PlanSchema.parse(planJson);
+    } catch (error) {
+      if (retries > 0) {
+        console.warn(`LLM failed for ${modelName}, retrying with ${env.SECONDARY_LLM_MODEL} in ${currentDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, currentDelay));
+        return callLLM(env.SECONDARY_LLM_MODEL, retries - 1, currentDelay * 2);
+      }
+      throw error;
+    }
   }
 
-  const data = await response.json();
-  const planJson = JSON.parse(data.choices[0].message.content);
-  
-  // Validate against schema
-  return PlanSchema.parse(planJson);
+  return await callLLM(model);
 }

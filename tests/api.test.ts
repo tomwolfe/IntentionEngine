@@ -4,7 +4,7 @@ import { POST as intentPOST } from '@/app/api/intent/route';
 import { POST as executePOST } from '@/app/api/execute/route';
 import { GET as downloadIcsGET } from '@/app/api/download-ics/route';
 import { NextRequest } from 'next/server';
-import { createAuditLog, updateAuditLog, getAuditLog } from '@/lib/audit';
+import * as audit from '@/lib/audit';
 import { rateLimitCache } from '@/lib/reliability';
 
 global.fetch = vi.fn();
@@ -46,9 +46,7 @@ describe('API Endpoints', () => {
   });
 
   it('POST /api/audit should handle failure', async () => {
-    const { cache } = await import('@/lib/cache');
-    const originalSet = cache.set;
-    cache.set = vi.fn().mockRejectedValue(new Error('Cache error'));
+    const spy = vi.spyOn(audit, 'createAuditLog').mockRejectedValue(new Error('Audit creation failed'));
 
     const req = new NextRequest('http://localhost/api/audit', {
       method: 'POST',
@@ -58,7 +56,7 @@ describe('API Endpoints', () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Failed to create audit log" });
 
-    cache.set = originalSet;
+    spy.mockRestore();
   });
 
   it('POST /api/intent should generate a plan', async () => {
@@ -119,8 +117,8 @@ describe('API Endpoints', () => {
       summary: 'Test Plan'
     };
     
-    const log = await createAuditLog('test execute');
-    await updateAuditLog(log.id, { plan });
+    const log = await audit.createAuditLog('test execute');
+    await audit.updateAuditLog(log.id, { plan });
 
     (fetch as any).mockResolvedValue({
       ok: true,
@@ -137,7 +135,7 @@ describe('API Endpoints', () => {
     const data = await res.json();
     expect(data.result.success).toBe(true);
     
-    const updatedLog = await getAuditLog(log.id);
+    const updatedLog = await audit.getAuditLog(log.id);
     expect(updatedLog?.steps[0].status).toBe('executed');
   });
 
@@ -154,8 +152,8 @@ describe('API Endpoints', () => {
       summary: 'Test Plan'
     };
     
-    const log = await createAuditLog('test confirm');
-    await updateAuditLog(log.id, { plan });
+    const log = await audit.createAuditLog('test confirm');
+    await audit.updateAuditLog(log.id, { plan });
 
     const req = new NextRequest('http://localhost/api/execute', {
       method: 'POST',
@@ -180,7 +178,7 @@ describe('API Endpoints', () => {
       summary: 'Test Plan'
     };
     
-    const log = await createAuditLog('test already');
+    const log = await audit.createAuditLog('test already');
     const stepLog = {
       step_index: 0,
       tool_name: 'geocode_location',
@@ -188,7 +186,7 @@ describe('API Endpoints', () => {
       input: { location: 'New York' },
       output: { success: true },
     };
-    await updateAuditLog(log.id, { plan, steps: [stepLog] });
+    await audit.updateAuditLog(log.id, { plan, steps: [stepLog] });
 
     const req = new NextRequest('http://localhost/api/execute', {
       method: 'POST',
@@ -214,8 +212,8 @@ describe('API Endpoints', () => {
       summary: 'Test Plan'
     };
     
-    const log = await createAuditLog('test error');
-    await updateAuditLog(log.id, { plan });
+    const log = await audit.createAuditLog('test error');
+    await audit.updateAuditLog(log.id, { plan });
 
     (fetch as any).mockRejectedValue(new Error('Network failure'));
 
@@ -231,7 +229,7 @@ describe('API Endpoints', () => {
     const data = await res.json();
     expect(data.result.success).toBe(false);
     
-    const updatedLog = await getAuditLog(log.id);
+    const updatedLog = await audit.getAuditLog(log.id);
     expect(updatedLog?.steps[0].status).toBe('executed'); 
     vi.useRealTimers();
   });
@@ -249,8 +247,8 @@ describe('API Endpoints', () => {
       summary: 'Test Plan'
     };
     
-    const log = await createAuditLog('test nonexistent');
-    await updateAuditLog(log.id, { plan });
+    const log = await audit.createAuditLog('test nonexistent');
+    await audit.updateAuditLog(log.id, { plan });
 
     const req = new NextRequest('http://localhost/api/execute', {
       method: 'POST',
@@ -278,8 +276,8 @@ describe('API Endpoints', () => {
       ordered_steps: [],
       summary: 'Empty Plan'
     };
-    const log = await createAuditLog('test missing step');
-    await updateAuditLog(log.id, { plan });
+    const log = await audit.createAuditLog('test missing step');
+    await audit.updateAuditLog(log.id, { plan });
 
     const req = new NextRequest('http://localhost/api/execute', {
       method: 'POST',
@@ -291,8 +289,8 @@ describe('API Endpoints', () => {
   });
 
   it('updateAuditLog should throw on invalid outcome schema', async () => {
-    const log = await createAuditLog('test invalid');
-    await expect(updateAuditLog(log.id, { 
+    const log = await audit.createAuditLog('test invalid');
+    await expect(audit.updateAuditLog(log.id, { 
       final_outcome: { status: 'INVALID', message: 'test' } as any 
     })).rejects.toThrow('Invalid audit outcome schema');
   });

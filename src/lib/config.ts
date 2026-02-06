@@ -4,6 +4,7 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().min(1),
   LLM_BASE_URL: z.string().url().optional().default("https://api.z.ai/api/paas/v4"),
   LLM_MODEL: z.string().min(1).default("glm-4.7-flash"),
+  SECONDARY_LLM_MODEL: z.string().min(1).default("gpt-4o-mini"),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

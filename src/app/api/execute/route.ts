@@ -28,14 +28,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Step not found" }, { status: 404 });
       }
 
-      if (step.requires_confirmation && !user_confirmed) {
-        return NextResponse.json({ error: "User confirmation required for this step" }, { status: 403 });
-      }
-
       // Check if already executed
       const existingStepLog = log.steps.find(s => s.step_index === step_index);
       if (existingStepLog && existingStepLog.status === "executed") {
         return NextResponse.json({ error: "Step already executed" }, { status: 400 });
+      }
+
+      // Step Validation Guard: Ensure sequential execution
+      if (step_index !== log.steps.length) {
+        return NextResponse.json({ 
+          error: `Invalid step index ${step_index}. Expected ${log.steps.length}.`,
+          current_step: log.steps.length 
+        }, { status: 400 });
+      }
+
+      if (step.requires_confirmation && !user_confirmed) {
+        return NextResponse.json({ error: "User confirmation required for this step" }, { status: 403 });
       }
 
       try {

@@ -2,18 +2,19 @@ import { RestaurantResultSchema } from "./schema";
 import { cache, CACHE_TTLS } from "./cache";
 import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "./validation-schemas";
 import { withCircuitBreaker } from "./reliability";
+import { withRetry } from "./utils/reliability";
 
-async function fetchWithRetry(url: string, options: RequestInit, service: string, retries = 3, backoff = 1000): Promise<Response> {
+async function fetchWithRetry(url: string, options: RequestInit, service: string): Promise<Response> {
   return await withCircuitBreaker(service, async () => {
-    const response = await fetch(url, options);
-    if (!response.ok) {
-      if ((response.status >= 500 || response.status === 429) && retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, backoff));
-        return fetchWithRetry(url, options, service, retries - 1, backoff * 2);
+    return await withRetry(async () => {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const error = new Error(`API error: ${response.statusText}`);
+        (error as any).status = response.status;
+        throw error;
       }
-      throw new Error(`API error: ${response.statusText}`);
-    }
-    return response;
+      return response;
+    }, 3, 1000, 10000);
   });
 }
 
@@ -100,11 +101,7 @@ export async function search_restaurant(params: any) {
 
     const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-    const overpassRes = await fetchWithRetry(overpassUrl, { signal: controller.signal }, 'overpass');
-    clearTimeout(timeoutId);
+    const overpassRes = await fetchWithRetry(overpassUrl, {}, 'overpass');
 
     const overpassData = await overpassRes.json();
     let elements = overpassData.elements || [];
@@ -210,11 +207,11 @@ export async function add_calendar_event(params: any) {
   };
 }
 
-export const TOOLS: Record<string, Function> = {
+export const TOOLS: Record<string, Function> = Object.freeze({
   search_restaurant,
   add_calendar_event,
   geocode_location,
-};
+});
 
 export async function executeTool(tool_name: string, parameters: any) {
   const tool = TOOLS[tool_name];

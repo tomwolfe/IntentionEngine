@@ -1,24 +1,24 @@
 import pytest
 import re
 
-# Mirroring the logic from src/lib/intent-schema.ts
+# Mirroring the logic from src/lib/intent.ts
 def classify_intent(input_text: str):
     normalized = input_text.lower().strip()
     
-    # Keyword-based heuristic
-    has_calendar = bool(re.search(r'\b(book|calendar|event|schedule|add to)\b', normalized))
-    has_search = bool(re.search(r'\b(find|search|where|look for|nearby)\b', normalized))
+    # Standardized Keyword-based system
+    SEARCH_KEYWORDS = r'\b(find|search|where|look for|nearby|restaurant|food|eat|dinner|lunch|breakfast|cafe|bar|pub)\b'
+    CALENDAR_KEYWORDS = r'\b(plan|book|calendar|event|schedule|add to|meeting|appointment|reminder|ics)\b'
     
-    if has_calendar:
+    if re.search(CALENDAR_KEYWORDS, normalized):
         return "TOOL_CALENDAR"
-    if has_search:
+    if re.search(SEARCH_KEYWORDS, normalized):
         return "TOOL_SEARCH"
     return "SIMPLE"
 
 @pytest.mark.parametrize("message,expected_intent", [
     ("Hello", "SIMPLE"),
     ("How are you?", "SIMPLE"),
-    ("Plan a dinner", "SIMPLE"), # "plan" is not in the search/calendar keywords
+    ("Plan a dinner", "TOOL_CALENDAR"), # "plan" is now a calendar keyword
     ("Find a restaurant in London", "TOOL_SEARCH"),
     ("Where is the nearest cafe?", "TOOL_SEARCH"),
     ("Book a table for two", "TOOL_CALENDAR"),

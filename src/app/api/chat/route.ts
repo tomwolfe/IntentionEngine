@@ -33,7 +33,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "No messages provided" }, { status: 400 });
       }
 
-      const coreMessages = await convertToModelMessages(messages);
+      const messagesWithIds = messages.map((m) => ({
+        ...m,
+        id: m.id ?? Math.random().toString(),
+        parts: m.parts ?? [{ type: "text", text: m.content }],
+      }));
+
+      const coreMessages = await convertToModelMessages(messagesWithIds as any);
 
       const locationContext = userLocation 
         ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
@@ -88,7 +94,7 @@ export async function POST(req: NextRequest) {
       });
 
       return result.toUIMessageStreamResponse({
-        originalMessages: messages,
+        originalMessages: messagesWithIds as any,
       }) as NextResponse;
     } catch (error: any) {
       console.error("Error in chat route:", error);

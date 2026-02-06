@@ -3,7 +3,6 @@ import { z } from "zod";
 import { Redis } from "@upstash/redis";
 import { env } from "./config";
 import { cache } from "./cache";
-import crypto from "crypto";
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -45,8 +44,15 @@ export interface AuditLog {
 const AUDIT_LOG_PREFIX = "audit_log:";
 const IDEMPOTENCY_PREFIX = "idempotency:";
 
+async function sha256(message: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function createAuditLog(intent: string): Promise<AuditLog> {
-  const intentHash = crypto.createHash("sha256").update(intent).digest("hex");
+  const intentHash = await sha256(intent);
   const idempotencyKey = `${IDEMPOTENCY_PREFIX}${intentHash}`;
 
   if (redis) {

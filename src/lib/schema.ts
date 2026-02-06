@@ -31,8 +31,10 @@ export type Plan = z.infer<typeof PlanSchema>;
 export const ChatRequestSchema = z.object({
   messages: z.array(
     z.object({
+      id: z.string().optional(),
       role: z.enum(["user", "assistant", "system", "tool"]),
       content: z.string(),
+      parts: z.array(z.any()).optional(),
     })
   ),
   userLocation: z.object({

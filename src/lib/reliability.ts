@@ -12,7 +12,8 @@ export async function withReliability(
   options = { timeoutMs: 8000, rateLimit: 10 }
 ) {
   // Simple rate limiting based on IP or a generic user ID
-  const ip = req.ip || 'anonymous';
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : 'anonymous';
   const currentRequests = rateLimitCache.get(ip) || 0;
 
   if (currentRequests >= options.rateLimit) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parseDateTime } from '@/app/api/download-ics/route';
+import { parseDateTime } from '@/lib/date-utils';
 import { GeocodeLocationSchema, SearchRestaurantSchema, IntentRequestSchema } from '@/lib/validation-schemas';
 import { cache } from '@/lib/cache';
 import { geocode_location, search_restaurant, add_calendar_event } from '@/lib/tools';
@@ -106,8 +106,8 @@ describe('Calendar Event Tool', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.result.download_url).toContain('title=Dinner');
-    expect(result.result.download_url).toContain('Restaurant%3A+Le+Bistro');
+    expect(result.result!.download_url).toContain('title=Dinner');
+    expect(result.result!.download_url).toContain('Restaurant%3A+Le+Bistro');
   });
 });
 

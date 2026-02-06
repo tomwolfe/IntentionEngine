@@ -115,7 +115,9 @@ export default function Home() {
       setError(err.message || "An unexpected error occurred. Please try again.");
     },
     async onToolCall({ toolCall }) {
-      // Server-side execution is handled in route.ts
+      console.log("Tool call received on client:", toolCall.toolName);
+      // For server-executed tools, this is mainly for client-side side-effects
+      // The actual rendering is handled in the message loop below.
     },
   });
 
@@ -319,41 +321,46 @@ export default function Home() {
                             const output = toolInvocation.output as any;
                             return (
                               <>
-                                                                {toolName === 'search_restaurant' && output.success && Array.isArray(output.result) ? (
-                                                                  <div className="space-y-2">
-                                                                    {output.result.map((r: any, i: number) => (
-                                                                      <div key={i} className="flex items-center justify-between p-2 border rounded bg-slate-50">
-                                                                        <div>
-                                                                          <p className="font-bold text-sm">{r.name}</p>
-                                                                          <p className="text-xs text-slate-500">{r.address}</p>
-                                                                        </div>
-                                                                        <button
-                                                                          onClick={() => {
-                                                                            const time = "7 PM"; // Default or extracted from previous messages
-                                                                            sendMessage({ text: `I've selected ${r.name} at ${r.address}. Please add this to my calendar for tonight at ${time}.` }, {
-                                                                              body: { userLocation }
-                                                                            });
-                                                                          }}
-                                                                          className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition-colors"
-                                                                        >
-                                                                          Select
-                                                                        </button>
-                                                                      </div>
-                                                                    ))}
-                                                                  </div>
-                                                                ) :
+                                {toolName === 'search_restaurant' && output.success && Array.isArray(output.result) ? (
+                                  <div className="space-y-2">
+                                    <div className="text-xs text-slate-500 mb-1">Found {output.result.length} romantic options:</div>
+                                    {output.result.map((r: any, i: number) => (
+                                      <div key={i} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
+                                        <div>
+                                          <p className="font-bold text-sm text-slate-800">{r.name}</p>
+                                          <p className="text-xs text-slate-500">{r.address}</p>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            // Extract time from conversation context if possible, otherwise default
+                                            const time = "7:00 PM"; 
+                                            sendMessage({ text: `I've selected ${r.name} at ${r.address}. Please add this to my calendar for tomorrow at ${time}.` }, {
+                                              body: { userLocation }
+                                            });
+                                          }}
+                                          className="text-xs bg-blue-600 text-white px-4 py-2 rounded-md font-bold hover:bg-blue-700 transition-all shadow-sm"
+                                        >
+                                          Select
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) :
                                  toolName === 'add_calendar_event' && output.success && output.result?.download_url ? (
                                   <div className="py-2">
-                                    <a 
-                                      href={output.result.download_url}
-                                      className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors text-sm"
-                                    >
-                                      <Calendar size={16} />
-                                      Download to Calendar (.ics)
-                                    </a>
+                                    <div className="bg-green-50 border border-green-100 p-4 rounded-lg flex flex-col items-center gap-3">
+                                      <p className="text-sm text-green-800 font-medium text-center">Calendar event generated successfully!</p>
+                                      <a 
+                                        href={output.result.download_url}
+                                        className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition-all shadow-md text-sm"
+                                      >
+                                        <Calendar size={18} />
+                                        Download (.ics)
+                                      </a>
+                                    </div>
                                   </div>
                                 ) : (
-                                  <pre className="text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40">
+                                  <pre className="text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40 border border-slate-200">
                                     {JSON.stringify(output, null, 2)}
                                   </pre>
                                 )}
@@ -362,13 +369,15 @@ export default function Home() {
                           })()}
                         </div>
                       ) : toolInvocation.state === 'output-error' ? (
-                        <div className="text-xs text-red-500 font-mono">
+                        <div className="text-xs text-red-500 font-mono bg-red-50 p-2 rounded border border-red-100">
                           Error: {toolInvocation.errorText}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 text-sm text-slate-500 animate-pulse">
-                          <Loader2 size={14} className="animate-spin" />
-                          Running {toolName.replace(/_/g, ' ')}...
+                        <div className="flex items-center gap-2 text-sm text-blue-600 font-medium animate-pulse py-2">
+                          <Loader2 size={16} className="animate-spin" />
+                          {toolName === 'search_restaurant' ? 'Searching for restaurants...' : 
+                           toolName === 'add_calendar_event' ? 'Generating calendar event...' : 
+                           `Running ${toolName.replace(/_/g, ' ')}...`}
                         </div>
                       )}
                     </div>

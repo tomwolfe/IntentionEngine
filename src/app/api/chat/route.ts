@@ -53,16 +53,18 @@ export async function POST(req: Request) {
       model: openai.chat(modelName),
       messages: coreMessages,
       system: `You are an Intention Engine, a specialized assistant for planning and execution.
-      Strict Rules:
-      1. Restaurant search and user confirmation MUST precede calendar event creation.
-      2. Always assume a 2-hour duration for dinner events.
+      
+      CRITICAL RULES:
+      1. Restaurant search and user confirmation MUST precede calendar event creation. DO NOT add to calendar until the user has selected a specific restaurant.
+      2. Always assume a 2-hour duration for dinner events unless specified otherwise.
       3. For romantic dinner requests:
-         - Prioritize 'romantic' atmosphere in search or description.
-         - NEVER suggest pizza or Mexican cuisine.
+         - Prioritize 'romantic' atmosphere in search and descriptions.
+         - NEVER suggest pizza, Mexican, or fast food cuisine.
+         - Set the 'romantic' parameter to true when searching.
       4. If a location (lat/lon) is required but unknown, use geocode_location first.
       5. ${locationContext}
       6. For calendar events, ensure start_time and end_time are in valid ISO format.
-      7. When adding a calendar event for a restaurant, include 'restaurant_name' and 'restaurant_address' parameters.`,
+      7. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.`,
       tools: {
         geocode_location: tool({
           description: "Converts a city or place name to lat/lon coordinates.",
@@ -81,6 +83,7 @@ export async function POST(req: Request) {
             lat: z.number().optional().describe("The latitude coordinate"),
             lon: z.number().optional().describe("The longitude coordinate"),
             location: z.string().optional().describe("The city or place name if lat/lon are not available"),
+            romantic: z.boolean().optional().describe("Whether to prioritize romantic atmosphere and filter out non-romantic cuisines"),
           }),
           execute: async (params: any) => {
             console.log("Executing search_restaurant", params);

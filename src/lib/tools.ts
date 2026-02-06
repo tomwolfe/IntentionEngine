@@ -26,8 +26,8 @@ export async function geocode_location(params: { location: string }) {
   }
 }
 
-export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string }) {
-  let { cuisine, lat, lon, location } = params;
+export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string; romantic?: boolean }) {
+  let { cuisine, lat, lon, location, romantic } = params;
   
   if ((lat === undefined || lon === undefined) && location) {
     const geo = await geocode_location({ location });
@@ -43,9 +43,9 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     return { success: false, error: "Coordinates are required for restaurant search." };
   }
 
-  // Redis cache key: restaurant:{cuisine || 'any'}:{lat.2f}:{lon.2f}
+  // Redis cache key: restaurant:{cuisine || 'any'}:{lat.2f}:{lon.2f}:{romantic ? 'romantic' : 'all'}
   // TTL: 3600 seconds (1 hour)
-  const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}`;
+  const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`;
 
   if (redis) {
     try {
@@ -62,32 +62,31 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     }
   }
 
-  console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}...`);
+  console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}... ${romantic ? '(Romantic prioritized)' : ''}`);
 
   try {
     // 2. Overpass Query
-    // We use nwr (node, way, relation) to capture all restaurant types.
-    // We use a union to search for the specific cuisine within 10km AND
-    // any restaurant within 5km as a fallback to ensure results are returned.
-    const query = cuisine 
+    // If romantic is true, we add a filter for potential romantic features or just use it in sorting.
+    // Overpass doesn't have a great "romantic" tag, so we'll rely on cuisine and sorting.
+    let query = cuisine 
       ? `
         [out:json][timeout:10];
         (
           nwr["amenity"="restaurant"]["cuisine"~"${cuisine}",i](around:10000,${lat},${lon});
           nwr["amenity"="restaurant"](around:5000,${lat},${lon});
         );
-        out center 10;
+        out center 15;
       `
       : `
         [out:json][timeout:10];
         nwr["amenity"="restaurant"](around:10000,${lat},${lon});
-        out center 10;
+        out center 15;
       `;
 
     const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // Increased timeout for larger query
 
     const overpassRes = await fetch(overpassUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
@@ -99,19 +98,45 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     const overpassData = await overpassRes.json();
     let elements = overpassData.elements || [];
 
-    // Prioritize results that match the cuisine if provided
-    if (cuisine) {
-      const regex = new RegExp(cuisine, 'i');
-      elements.sort((a: any, b: any) => {
-        const aCuisine = a.tags?.cuisine || '';
-        const bCuisine = b.tags?.cuisine || '';
-        const aMatches = regex.test(aCuisine);
-        const bMatches = regex.test(bCuisine);
-        if (aMatches && !bMatches) return -1;
-        if (!aMatches && bMatches) return 1;
-        return 0;
+    // Filter out pizza/Mexican if romantic is requested
+    if (romantic) {
+      elements = elements.filter((el: any) => {
+        const c = (el.tags?.cuisine || '').toLowerCase();
+        return !c.includes('pizza') && !c.includes('mexican') && !c.includes('fast_food');
       });
     }
+
+    // Prioritize results that match the cuisine or "romantic" keywords
+    const cuisineRegex = cuisine ? new RegExp(cuisine, 'i') : null;
+    const romanticKeywords = ['romantic', 'fine dining', 'candlelight', 'intimate', 'french', 'italian', 'wine bar'];
+
+    elements.sort((a: any, b: any) => {
+      let aScore = 0;
+      let bScore = 0;
+
+      const aCuisine = (a.tags?.cuisine || '').toLowerCase();
+      const bCuisine = (b.tags?.cuisine || '').toLowerCase();
+      const aName = (a.tags?.name || '').toLowerCase();
+      const bName = (b.tags?.name || '').toLowerCase();
+
+      if (cuisineRegex) {
+        if (cuisineRegex.test(aCuisine) || cuisineRegex.test(aName)) aScore += 10;
+        if (cuisineRegex.test(bCuisine) || cuisineRegex.test(bName)) bScore += 10;
+      }
+
+      if (romantic) {
+        romanticKeywords.forEach(kw => {
+          if (aCuisine.includes(kw) || aName.includes(kw)) aScore += 5;
+          if (bCuisine.includes(kw) || bName.includes(kw)) bScore += 5;
+        });
+        
+        // Bonus for French/Italian in romantic contexts
+        if (aCuisine.includes('french') || aCuisine.includes('italian')) aScore += 3;
+        if (bCuisine.includes('french') || bCuisine.includes('italian')) bScore += 3;
+      }
+
+      return bScore - aScore;
+    });
 
     const results = elements.map((el: any) => {
       const name = el.tags.name || "Unknown Restaurant";

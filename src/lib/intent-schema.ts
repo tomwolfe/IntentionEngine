@@ -13,7 +13,7 @@ export function classifyIntent(input: string): IntentClassification {
   const normalized = input.toLowerCase().trim();
   
   // Keyword-based heuristic for now, matching the requirements
-  const hasCalendar = /\b(book|calendar|event|schedule|add to)\b/.test(normalized);
+  const hasCalendar = /\b(plan|book|calendar|event|schedule|add to)\b/.test(normalized);
   const hasSearch = /\b(find|search|where|look for|nearby)\b/.test(normalized);
   
   if (hasCalendar) {

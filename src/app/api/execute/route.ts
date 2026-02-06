@@ -59,11 +59,21 @@ export async function POST(req: NextRequest) {
         };
 
         const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-        await updateAuditLog(audit_log_id, { steps: updatedSteps });
+        
+        try {
+          await updateAuditLog(audit_log_id, { steps: updatedSteps });
 
-        // Check if all steps are done
-        if (updatedSteps.length === log.plan.ordered_steps.length) {
-          await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
+          // Check if all steps are done
+          if (updatedSteps.length === log.plan.ordered_steps.length) {
+            await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
+          }
+        } catch (auditError: any) {
+          console.error(`CRITICAL: Tool ${step.tool_name} succeeded but updateAuditLog failed for log ${audit_log_id}.`, {
+            audit_log_id,
+            step_index,
+            tool_result: result,
+            error: auditError.message
+          });
         }
 
         return NextResponse.json({ result, audit_log_id });
@@ -76,7 +86,17 @@ export async function POST(req: NextRequest) {
           error: error.message,
         };
         const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-        await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
+        
+        try {
+          await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
+        } catch (auditError: any) {
+          console.error(`CRITICAL: Tool ${step.tool_name} failed AND updateAuditLog failed for log ${audit_log_id}.`, {
+            audit_log_id,
+            step_index,
+            tool_error: error.message,
+            audit_error: auditError.message
+          });
+        }
         
         return NextResponse.json({ error: error.message }, { status: 500 });
       }

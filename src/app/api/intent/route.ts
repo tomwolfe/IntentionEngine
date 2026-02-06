@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generatePlan } from "@/lib/llm";
+import { classifyIntent } from "@/lib/intent";
 import { createAuditLog, updateAuditLog } from "@/lib/audit";
 import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
@@ -18,6 +19,22 @@ export async function POST(req: NextRequest) {
       }
 
       const { intent, user_location } = validatedBody.data;
+
+      // Hybrid Regex-LLM Approach: Handle simple intents locally
+      const classification = classifyIntent(intent);
+      if (classification.type === "SIMPLE" && classification.confidence === 1.0) {
+        const auditLog = await createAuditLog(intent);
+        const plan = {
+          intent_type: "simple_response",
+          constraints: [],
+          ordered_steps: [],
+          summary: intent.toLowerCase().includes("thank") 
+            ? "You're very welcome! Let me know if you need anything else." 
+            : "Hello! How can I help you today with restaurant searches or calendar events?"
+        };
+        await updateAuditLog(auditLog.id, { plan });
+        return NextResponse.json({ plan, audit_log_id: auditLog.id });
+      }
 
       const auditLog = await createAuditLog(intent);
 

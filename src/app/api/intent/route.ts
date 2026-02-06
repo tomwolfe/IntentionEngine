@@ -2,55 +2,50 @@ import { NextRequest, NextResponse } from "next/server";
 import { generatePlan } from "@/lib/llm";
 import { createAuditLog, updateAuditLog } from "@/lib/audit";
 import { PlanSchema } from "@/lib/schema";
-import { z } from "zod";
+import { withReliability } from "@/lib/reliability";
+import { IntentRequestSchema } from "@/lib/validation-schemas";
 
 export const runtime = "edge";
 
-const IntentRequestSchema = z.object({
-  intent: z.string().min(1),
-  user_location: z.object({
-    lat: z.number().min(-90).max(90),
-    lng: z.number().min(-180).max(180),
-  }).nullable().optional(),
-});
-
 export async function POST(req: NextRequest) {
-  try {
-    const rawBody = await req.json();
-    const validatedBody = IntentRequestSchema.safeParse(rawBody);
-
-    if (!validatedBody.success) {
-      return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
-    }
-
-    const { intent, user_location } = validatedBody.data;
-
-    const auditLog = await createAuditLog(intent);
-
+  return withReliability(req, async () => {
     try {
-      const plan = await generatePlan(intent, user_location);
-      
-      // Secondary validation just in case
-      PlanSchema.parse(plan);
+      const rawBody = await req.json();
+      const validatedBody = IntentRequestSchema.safeParse(rawBody);
 
-      await updateAuditLog(auditLog.id, { plan });
+      if (!validatedBody.success) {
+        return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
+      }
 
-      return NextResponse.json({
-        plan,
-        audit_log_id: auditLog.id,
-      });
+      const { intent, user_location } = validatedBody.data;
+
+      const auditLog = await createAuditLog(intent);
+
+      try {
+        const plan = await generatePlan(intent, user_location);
+        
+        // Secondary validation just in case
+        PlanSchema.parse(plan);
+
+        await updateAuditLog(auditLog.id, { plan });
+
+        return NextResponse.json({
+          plan,
+          audit_log_id: auditLog.id,
+        });
+      } catch (error: any) {
+        console.error("Plan generation failed:", error);
+        await updateAuditLog(auditLog.id, { 
+          validation_error: error.message || "Unknown error during plan generation" 
+        });
+        return NextResponse.json({ 
+          error: "Failed to generate execution plan", 
+          details: error.message,
+          audit_log_id: auditLog.id 
+        }, { status: 500 });
+      }
     } catch (error: any) {
-      console.error("Plan generation failed:", error);
-      await updateAuditLog(auditLog.id, { 
-        validation_error: error.message || "Unknown error during plan generation" 
-      });
-      return NextResponse.json({ 
-        error: "Failed to generate execution plan", 
-        details: error.message,
-        audit_log_id: auditLog.id 
-      }, { status: 500 });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  });
 }

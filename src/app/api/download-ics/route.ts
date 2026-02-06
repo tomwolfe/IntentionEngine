@@ -1,83 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
-
-const DownloadIcsSchema = z.object({
-  title: z.string().default('Event'),
-  start: z.string().min(1),
-  end: z.string().optional().nullable(),
-  location: z.string().optional().default(''),
-  description: z.string().optional().default(''),
-});
+import { addHours, isValid, format, parseISO, addDays, set } from 'date-fns';
+import { withReliability } from '@/lib/reliability';
+import { DownloadIcsSchema } from '@/lib/validation-schemas';
 
 function formatICalDate(date: Date): string {
-  return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  return format(date, "yyyyMMdd'T'HHmmss'Z'");
 }
 
-function parseDateTime(dt: string): Date {
-  const d = new Date(dt);
-  if (!isNaN(d.getTime())) return d;
-  
-  // Basic "tomorrow" handling
-  if (dt.toLowerCase().includes("tomorrow")) {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
-    
-    // Try to extract time like "7pm" or "19:00"
-    const timeMatch = dt.match(/(\d+)(?::(\d+))?\s*(am|pm)?/i);
+export function parseDateTime(dt: string): Date {
+  // Try ISO first
+  let date = parseISO(dt);
+  if (isValid(date)) return date;
+
+  const now = new Date();
+  const lowerDt = dt.toLowerCase().trim();
+
+  // "tomorrow at 3pm" etc.
+  if (lowerDt.includes("tomorrow")) {
+    date = addDays(now, 1);
+    const timeMatch = lowerDt.match(/(\d+)(?::(\d+))?\s*(am|pm)?/);
     if (timeMatch) {
       let hours = parseInt(timeMatch[1]);
       const minutes = parseInt(timeMatch[2] || "0");
-      const ampm = (timeMatch[3] || "").toLowerCase();
+      const ampm = timeMatch[3];
       
       if (ampm === "pm" && hours < 12) hours += 12;
       if (ampm === "am" && hours === 12) hours = 0;
       
-      tomorrow.setHours(hours, minutes, 0, 0);
-      return tomorrow;
+      return set(date, { hours, minutes, seconds: 0, milliseconds: 0 });
     }
-    return tomorrow;
+    return set(date, { hours: 12, minutes: 0, seconds: 0, milliseconds: 0 });
   }
-  return d;
+
+  // "today at 7pm"
+  if (lowerDt.includes("today") || lowerDt.includes("tonight")) {
+    date = now;
+    const timeMatch = lowerDt.match(/(\d+)(?::(\d+))?\s*(am|pm)?/);
+    if (timeMatch) {
+      let hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2] || "0");
+      const ampm = timeMatch[3];
+      
+      if (ampm === "pm" && hours < 12) hours += 12;
+      if (ampm === "am" && hours === 12) hours = 0;
+      
+      return set(date, { hours, minutes, seconds: 0, milliseconds: 0 });
+    }
+    return set(date, { hours: 19, minutes: 0, seconds: 0, milliseconds: 0 });
+  }
+
+  // Try standard Date constructor as fallback
+  const fallback = new Date(dt);
+  if (isValid(fallback)) return fallback;
+
+  return now;
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const params = Object.fromEntries(searchParams.entries());
-  
-  const validatedParams = DownloadIcsSchema.safeParse(params);
-  if (!validatedParams.success) {
-    return NextResponse.json({ error: "Invalid parameters", details: validatedParams.error.format() }, { status: 400 });
-  }
+  return withReliability(req, async () => {
+    const { searchParams } = new URL(req.url);
+    const params = Object.fromEntries(searchParams.entries());
+    
+    const validatedParams = DownloadIcsSchema.safeParse(params);
+    if (!validatedParams.success) {
+      return NextResponse.json({ error: "Invalid parameters", details: validatedParams.error.format() }, { status: 400 });
+    }
 
-  const { title, start: startStr, end: endStr, location, description } = validatedParams.data;
+    const { title, start: startStr, end: endStr, location, description } = validatedParams.data;
 
-  const startDate = parseDateTime(startStr);
-  let endDate = endStr ? parseDateTime(endStr) : new Date(startDate.getTime() + 60 * 60 * 1000);
+    const startDate = parseDateTime(startStr);
+    let endDate = endStr ? parseDateTime(endStr) : addHours(startDate, 1);
 
-  // If endDate is invalid or before startDate, make it 1 hour after startDate
-  if (isNaN(endDate.getTime()) || endDate <= startDate) {
-    endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-  }
+    if (!isValid(endDate) || endDate <= startDate) {
+      endDate = addHours(startDate, 1);
+    }
 
-  const icsContent = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//IntentionEngine//EN',
-    'BEGIN:VEVENT',
-    `SUMMARY:${title}`,
-    `DTSTART:${formatICalDate(startDate)}`,
-    `DTEND:${formatICalDate(endDate)}`,
-    `LOCATION:${location}`,
-    `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
-    'END:VEVENT',
-    'END:VCALENDAR'
-  ].join('\r\n');
+    const icsContent = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//IntentionEngine//EN',
+      'BEGIN:VEVENT',
+      `SUMMARY:${title}`,
+      `DTSTART:${formatICalDate(startDate)}`,
+      `DTEND:${formatICalDate(endDate)}`,
+      `LOCATION:${location}`,
+      `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n');
 
-  return new NextResponse(icsContent, {
-    headers: {
-      'Content-Type': 'text/calendar',
-      'Content-Disposition': `attachment; filename="${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.ics"`,
-    },
+    return new NextResponse(icsContent, {
+      headers: {
+        'Content-Type': 'text/calendar',
+        'Content-Disposition': `attachment; filename="${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.ics"`,
+      },
+    });
   });
 }

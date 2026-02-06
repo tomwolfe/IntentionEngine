@@ -1,5 +1,5 @@
 import { Plan } from "./schema";
-import { redis } from "./cache";
+import { cache } from "./cache";
 import { z } from "zod";
 
 export const AuditOutcomeSchema = z.object({
@@ -40,48 +40,29 @@ export async function createAuditLog(intent: string): Promise<AuditLog> {
     steps: [],
   };
 
-  if (redis) {
-    await redis.set(`${AUDIT_LOG_PREFIX}${id}`, JSON.stringify(log), { ex: 86400 * 7 }); // Store for 7 days
-  } else {
-    console.warn("Redis not configured, audit log will not be persisted");
-  }
+  await cache.set(`${AUDIT_LOG_PREFIX}${id}`, log, 86400 * 7); // Store for 7 days
 
   return log;
 }
 
 export async function updateAuditLog(id: string, update: Partial<AuditLog>): Promise<void> {
-  if (redis) {
-    const existing = await getAuditLog(id);
-    if (existing) {
-      if (update.final_outcome && typeof update.final_outcome === "object") {
-        try {
-          AuditOutcomeSchema.parse(update.final_outcome);
-        } catch (err) {
-          console.error("Invalid audit outcome schema:", err);
-          throw new Error("Invalid audit outcome schema");
-        }
+  const existing = await getAuditLog(id);
+  if (existing) {
+    if (update.final_outcome && typeof update.final_outcome === "object") {
+      try {
+        AuditOutcomeSchema.parse(update.final_outcome);
+      } catch (err) {
+        console.error("Invalid audit outcome schema:", err);
+        throw new Error("Invalid audit outcome schema");
       }
-      
-      const updated = { ...existing, ...update };
-      await redis.set(`${AUDIT_LOG_PREFIX}${id}`, JSON.stringify(updated), { ex: 86400 * 7 });
     }
+    
+    const updated = { ...existing, ...update };
+    await cache.set(`${AUDIT_LOG_PREFIX}${id}`, updated, 86400 * 7);
   }
 }
 
 export async function getAuditLog(id: string): Promise<AuditLog | undefined> {
-
-  if (redis) {
-
-    const data = await redis.get(`${AUDIT_LOG_PREFIX}${id}`);
-
-    if (data) {
-
-      return (typeof data === "string" ? JSON.parse(data) : data) as AuditLog;
-
-    }
-
-  }
-
-  return undefined;
-
+  const data = await cache.get<AuditLog>(`${AUDIT_LOG_PREFIX}${id}`);
+  return data || undefined;
 }

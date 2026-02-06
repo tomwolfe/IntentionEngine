@@ -1,82 +1,79 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuditLog, updateAuditLog } from "@/lib/audit";
 import { executeTool } from "@/lib/tools";
-import { z } from "zod";
+import { withReliability } from "@/lib/reliability";
+import { ExecuteRequestSchema } from "@/lib/validation-schemas";
 
 export const runtime = "edge";
 
-const ExecuteRequestSchema = z.object({
-  audit_log_id: z.string().min(1),
-  step_index: z.number().min(0),
-  user_confirmed: z.boolean().optional().default(false),
-});
-
 export async function POST(req: NextRequest) {
-  try {
-    const rawBody = await req.json();
-    const validatedBody = ExecuteRequestSchema.safeParse(rawBody);
-
-    if (!validatedBody.success) {
-      return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
-    }
-
-    const { audit_log_id, step_index, user_confirmed } = validatedBody.data;
-
-    const log = await getAuditLog(audit_log_id);
-    if (!log || !log.plan) {
-      return NextResponse.json({ error: "Audit log or plan not found" }, { status: 404 });
-    }
-
-    const step = log.plan.ordered_steps[step_index];
-    if (!step) {
-      return NextResponse.json({ error: "Step not found" }, { status: 404 });
-    }
-
-    if (step.requires_confirmation && !user_confirmed) {
-      return NextResponse.json({ error: "User confirmation required for this step" }, { status: 403 });
-    }
-
-    // Check if already executed
-    const existingStepLog = log.steps.find(s => s.step_index === step_index);
-    if (existingStepLog && existingStepLog.status === "executed") {
-      return NextResponse.json({ error: "Step already executed" }, { status: 400 });
-    }
-
+  return withReliability(req, async () => {
     try {
-      const result = await executeTool(step.tool_name, step.parameters);
-      
-      const stepLog = {
-        step_index,
-        tool_name: step.tool_name,
-        status: "executed" as const,
-        input: step.parameters,
-        output: result,
-        confirmed_by_user: user_confirmed,
-      };
+      const rawBody = await req.json();
+      const validatedBody = ExecuteRequestSchema.safeParse(rawBody);
 
-      const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-      await updateAuditLog(audit_log_id, { steps: updatedSteps });
-
-      // Check if all steps are done
-      if (updatedSteps.length === log.plan.ordered_steps.length) {
-        await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
+      if (!validatedBody.success) {
+        return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      return NextResponse.json({ result, audit_log_id });
+      const { audit_log_id, step_index, user_confirmed } = validatedBody.data;
+
+      const log = await getAuditLog(audit_log_id);
+      if (!log || !log.plan) {
+        return NextResponse.json({ error: "Audit log or plan not found" }, { status: 404 });
+      }
+
+      const step = log.plan.ordered_steps[step_index];
+      if (!step) {
+        return NextResponse.json({ error: "Step not found" }, { status: 404 });
+      }
+
+      if (step.requires_confirmation && !user_confirmed) {
+        return NextResponse.json({ error: "User confirmation required for this step" }, { status: 403 });
+      }
+
+      // Check if already executed
+      const existingStepLog = log.steps.find(s => s.step_index === step_index);
+      if (existingStepLog && existingStepLog.status === "executed") {
+        return NextResponse.json({ error: "Step already executed" }, { status: 400 });
+      }
+
+      try {
+        const result = await executeTool(step.tool_name, step.parameters);
+        
+        const stepLog = {
+          step_index,
+          tool_name: step.tool_name,
+          status: "executed" as const,
+          input: step.parameters,
+          output: result,
+          confirmed_by_user: user_confirmed,
+        };
+
+        const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
+        await updateAuditLog(audit_log_id, { steps: updatedSteps });
+
+        // Check if all steps are done
+        if (updatedSteps.length === log.plan.ordered_steps.length) {
+          await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
+        }
+
+        return NextResponse.json({ result, audit_log_id });
+      } catch (error: any) {
+        const stepLog = {
+          step_index,
+          tool_name: step.tool_name,
+          status: "failed" as const,
+          input: step.parameters,
+          error: error.message,
+        };
+        const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
+        await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
+        
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
     } catch (error: any) {
-      const stepLog = {
-        step_index,
-        tool_name: step.tool_name,
-        status: "failed" as const,
-        input: step.parameters,
-        error: error.message,
-      };
-      const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-      await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
-      
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  });
 }

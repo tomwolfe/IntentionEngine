@@ -1,15 +1,83 @@
 import { RestaurantResultSchema } from "./schema";
-import { redis } from "./cache";
+import { cache } from "./cache";
+import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "./validation-schemas";
 
-export async function geocode_location(params: { location: string }) {
-  console.log(`Geocoding location: ${params.location}...`);
+// Circuit Breaker State
+const circuitBreaker = {
+  nominatim: { failures: 0, lastFailure: 0, state: 'CLOSED' as 'CLOSED' | 'OPEN' | 'HALF-OPEN' },
+  overpass: { failures: 0, lastFailure: 0, state: 'CLOSED' as 'CLOSED' | 'OPEN' | 'HALF-OPEN' },
+};
+
+const BREAKER_THRESHOLD = 5;
+const RESET_TIMEOUT = 30000; // 30 seconds
+
+function checkBreaker(service: keyof typeof circuitBreaker) {
+  const breaker = circuitBreaker[service];
+  if (breaker.state === 'OPEN') {
+    if (Date.now() - breaker.lastFailure > RESET_TIMEOUT) {
+      breaker.state = 'HALF-OPEN';
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+function recordSuccess(service: keyof typeof circuitBreaker) {
+  const breaker = circuitBreaker[service];
+  breaker.failures = 0;
+  breaker.state = 'CLOSED';
+}
+
+function recordFailure(service: keyof typeof circuitBreaker) {
+  const breaker = circuitBreaker[service];
+  breaker.failures++;
+  breaker.lastFailure = Date.now();
+  if (breaker.failures >= BREAKER_THRESHOLD) {
+    breaker.state = 'OPEN';
+  }
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, service: keyof typeof circuitBreaker, retries = 3, backoff = 1000): Promise<Response> {
+  if (!checkBreaker(service)) {
+    throw new Error(`Circuit breaker for ${service} is OPEN`);
+  }
+
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(params.location)}&format=json&limit=1`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'IntentionEngine/1.0'
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      if (response.status >= 500 && retries > 0) {
+        await new Promise(resolve => setTimeout(resolve, backoff));
+        return fetchWithRetry(url, options, service, retries - 1, backoff * 2);
       }
-    });
+      throw new Error(`API error: ${response.statusText}`);
+    }
+    recordSuccess(service);
+    return response;
+  } catch (error) {
+    recordFailure(service);
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return fetchWithRetry(url, options, service, retries - 1, backoff * 2);
+    }
+    throw error;
+  }
+}
+
+export async function geocode_location(params: any) {
+  const validated = GeocodeLocationSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: "Invalid parameters", details: validated.error.format() };
+  }
+  const { location } = validated.data;
+
+  console.log(`Geocoding location: ${location}...`);
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    const response = await fetchWithRetry(url, {
+      headers: { 'User-Agent': 'IntentionEngine/1.0' }
+    }, 'nominatim');
+    
     const data = await response.json();
     if (data && data.length > 0) {
       return {
@@ -26,8 +94,13 @@ export async function geocode_location(params: { location: string }) {
   }
 }
 
-export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string; romantic?: boolean }) {
-  let { cuisine, lat, lon, location, romantic } = params;
+export async function search_restaurant(params: any) {
+  const validatedInput = SearchRestaurantSchema.safeParse(params);
+  if (!validatedInput.success) {
+    return { success: false, error: "Invalid parameters", details: validatedInput.error.format() };
+  }
+  
+  let { cuisine, lat, lon, location, romantic } = validatedInput.data;
   
   if ((lat === undefined || lon === undefined) && location) {
     const geo = await geocode_location({ location });
@@ -43,31 +116,20 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     return { success: false, error: "Coordinates are required for restaurant search." };
   }
 
-  // Redis cache key: restaurant:{cuisine || 'any'}:{lat.2f}:{lon.2f}:{romantic ? 'romantic' : 'all'}
-  // TTL: 3600 seconds (1 hour)
   const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`;
 
-  if (redis) {
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        console.log(`Using cached results for ${cacheKey}`);
-        return {
-          success: true,
-          result: cached
-        };
-      }
-    } catch (err) {
-      console.warn("Redis cache read failed:", err);
-    }
+  const cached = await cache.get(cacheKey);
+  if (cached) {
+    console.log(`Using cached results for ${cacheKey}`);
+    return {
+      success: true,
+      result: cached
+    };
   }
 
   console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}... ${romantic ? '(Romantic prioritized)' : ''}`);
 
   try {
-    // 2. Overpass Query
-    // If romantic is true, we add a filter for potential romantic features or just use it in sorting.
-    // Overpass doesn't have a great "romantic" tag, so we'll rely on cuisine and sorting.
     let query = cuisine 
       ? `
         [out:json][timeout:10];
@@ -86,19 +148,14 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
     const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // Increased timeout for larger query
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    const overpassRes = await fetch(overpassUrl, { signal: controller.signal });
+    const overpassRes = await fetchWithRetry(overpassUrl, { signal: controller.signal }, 'overpass');
     clearTimeout(timeoutId);
-    
-    if (!overpassRes.ok) {
-      throw new Error(`Overpass API error: ${overpassRes.statusText}`);
-    }
 
     const overpassData = await overpassRes.json();
     let elements = overpassData.elements || [];
 
-    // Filter out pizza/Mexican if romantic is requested
     if (romantic) {
       elements = elements.filter((el: any) => {
         const c = (el.tags?.cuisine || '').toLowerCase();
@@ -106,7 +163,6 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
       });
     }
 
-    // Prioritize results that match the cuisine or "romantic" keywords
     const cuisineRegex = cuisine ? new RegExp(cuisine, 'i') : null;
     const romanticKeywords = ['romantic', 'fine dining', 'candlelight', 'intimate', 'french', 'italian', 'wine bar'];
 
@@ -129,8 +185,6 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
           if (aCuisine.includes(kw) || aName.includes(kw)) aScore += 5;
           if (bCuisine.includes(kw) || bName.includes(kw)) bScore += 5;
         });
-        
-        // Bonus for French/Italian in romantic contexts
         if (aCuisine.includes('french') || aCuisine.includes('italian')) aScore += 3;
         if (bCuisine.includes('french') || bCuisine.includes('italian')) bScore += 3;
       }
@@ -157,14 +211,10 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
       return validated.success ? validated.data : null;
-    }).filter(Boolean).slice(0, 5); // Limit to top 5
+    }).filter(Boolean).slice(0, 5);
 
-    if (redis && results.length > 0) {
-      try {
-        await redis.setex(cacheKey, 3600, results);
-      } catch (err) {
-        console.warn("Redis cache write failed:", err);
-      }
+    if (results.length > 0) {
+      await cache.set(cacheKey, results, 3600);
     }
 
     return {
@@ -177,26 +227,25 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
   }
 }
 
-export async function add_calendar_event(params: { 
-  title: string; 
-  start_time: string; 
-  end_time: string; 
-  location?: string;
-  restaurant_name?: string;
-  restaurant_address?: string;
-}) {
-  console.log(`Adding calendar event: ${params.title} from ${params.start_time} to ${params.end_time}...`);
+export async function add_calendar_event(params: any) {
+  const validated = AddCalendarEventSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: "Invalid parameters", details: validated.error.format() };
+  }
+  const { title, start_time, end_time, location, restaurant_name, restaurant_address } = validated.data;
+
+  console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
   
-  const description = (params.restaurant_name || params.restaurant_address)
-    ? `Restaurant: ${params.restaurant_name || 'N/A'}\nAddress: ${params.restaurant_address || 'N/A'}`
+  const description = (restaurant_name || restaurant_address)
+    ? `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`
     : "";
 
   const queryParams = new URLSearchParams({
-    title: params.title,
-    start: params.start_time,
-    end: params.end_time,
-    location: params.location || params.restaurant_address || "",
-    description: description
+    title,
+    start: start_time,
+    end: end_time,
+    location: location || restaurant_address || "",
+    description
   });
 
   return {

@@ -50,10 +50,47 @@ export default function Home() {
     }
   }, []);
 
-  const { messages, status, sendMessage } = useChat({
-    transport: new DefaultChatTransport({
+  const customTransport = useMemo(() => {
+    const baseTransport = new DefaultChatTransport({
       api: "/api/chat",
-    }),
+    });
+
+    return {
+      sendMessages: async (options: any) => {
+        // Intercept and fix tool parameters for special intents
+        // This ensures data flow between sequential tool calls in the same turn
+        const messages = options.messages || [];
+        const lastMessage = messages[messages.length - 1];
+
+        if (lastMessage?.role === 'assistant' && activeIntent?.isSpecialIntent) {
+          const searchPart = lastMessage.parts.find((p: any) => 
+            isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available'
+          );
+          const calendarPart = lastMessage.parts.find((p: any) => 
+            isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'call'
+          );
+
+          if (searchPart && calendarPart) {
+            const restaurant = (searchPart as any).output.result[0];
+            if (restaurant) {
+              calendarPart.args = {
+                ...calendarPart.args,
+                restaurant_name: restaurant.name,
+                restaurant_address: restaurant.address,
+                location: restaurant.address
+              };
+            }
+          }
+        }
+
+        return baseTransport.sendMessages(options);
+      },
+      reconnectToStream: (options: any) => baseTransport.reconnectToStream(options),
+    };
+  }, [activeIntent]);
+
+  const { messages, status, sendMessage } = useChat({
+    transport: customTransport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
@@ -140,7 +177,20 @@ export default function Home() {
     if (activeIntent?.isSpecialIntent) {
       if (searchPart && calendarPart) {
         const restaurant = (searchPart as any).output.result[0];
-        const calendar = (calendarPart as any).output.result;
+        const calendarResult = (calendarPart as any).output.result;
+        
+        // Data flow fix: ensure the download URL uses the actual restaurant details found
+        let downloadUrl = calendarResult.download_url;
+        if (restaurant && downloadUrl) {
+          try {
+            const url = new URL(downloadUrl, window.location.origin);
+            url.searchParams.set('location', restaurant.address);
+            url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
+            downloadUrl = url.pathname + url.search;
+          } catch (e) {
+            console.warn("Failed to repair download URL", e);
+          }
+        }
 
         return (
           <div className="space-y-4 pt-4">
@@ -153,7 +203,7 @@ export default function Home() {
                 </div>
               )}
               <a 
-                href={calendar.download_url}
+                href={downloadUrl}
                 className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
               >
                 <Calendar size={24} />

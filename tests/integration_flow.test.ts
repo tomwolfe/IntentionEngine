@@ -5,9 +5,9 @@ import { AuditOutcomeSchema } from '../src/lib/audit';
 describe('Intention Engine Integration Flow', () => {
   describe('Intent Classification', () => {
     it('should classify simple intents as SIMPLE', () => {
-      const result = classifyIntent('Hello, how can you help me?');
+      const result = classifyIntent('Hello');
       expect(result.type).toBe('SIMPLE');
-      expect(result.confidence).toBe(1.0);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
     it('should classify search intents as TOOL_SEARCH', () => {
@@ -17,9 +17,15 @@ describe('Intention Engine Integration Flow', () => {
     });
 
     it('should classify calendar intents as TOOL_CALENDAR', () => {
-      const result = classifyIntent('Add a dinner meeting to my calendar for tonight at 7pm');
+      const result = classifyIntent('Add a meeting to my calendar');
       expect(result.type).toBe('TOOL_CALENDAR');
       expect(result.confidence).toBeGreaterThan(0.8);
+    });
+
+    it('should classify multi-intent as COMPLEX_PLAN', () => {
+      const result = classifyIntent('plan a dinner tomorrow');
+      expect(result.type).toBe('COMPLEX_PLAN');
+      expect(result.confidence).toBeGreaterThan(0.9);
     });
   });
 

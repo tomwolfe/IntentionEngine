@@ -211,6 +211,18 @@ describe('Date Parsing Reliability', () => {
     expect(date.getHours()).toBe(19);
   });
 
+  it('should handle "next Tuesday at 6pm"', () => {
+    const date = parseDateTime('next Tuesday at 6pm');
+    expect(date.getHours()).toBe(18);
+  });
+
+  it('should handle "in three days"', () => {
+    const date = parseDateTime('in three days');
+    const expected = new Date();
+    expected.setDate(expected.getDate() + 3);
+    expect(date.getDate()).toBe(expected.getDate());
+  });
+
   it('should fallback to now for invalid dates', () => {
     const date = parseDateTime('invalid date');
     expect(date).toBeInstanceOf(Date);

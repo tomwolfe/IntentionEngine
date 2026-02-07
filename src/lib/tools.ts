@@ -142,13 +142,36 @@ export async function search_restaurant(params: any) {
       return bScore - aScore;
     });
 
-    const results = elements.map((el: any) => {
+    const results = await Promise.all(elements.slice(0, 10).map(async (el: any) => {
       const name = el.tags.name || "Unknown Restaurant";
-      const addr = [
+      let addr = [
         el.tags["addr:housenumber"],
         el.tags["addr:street"],
-        el.tags["addr:city"]
-      ].filter(Boolean).join(" ") || "Address not available";
+        el.tags["addr:suburb"] || el.tags["addr:neighbourhood"],
+        el.tags["addr:city"] || el.tags["addr:town"] || el.tags["addr:village"]
+      ].filter(Boolean).join(" ");
+
+      if (!addr || !el.tags["addr:street"]) {
+        const lat = el.lat || el.center?.lat;
+        const lon = el.lon || el.center?.lon;
+        
+        if (lat && lon) {
+          try {
+            const revGeoUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=18`;
+            const revRes = await fetchWithRetry(revGeoUrl, {
+              headers: { 'User-Agent': 'IntentionEngine/1.0' }
+            }, 'nominatim');
+            const revData = await revRes.json();
+            if (revData && revData.display_name) {
+              addr = revData.display_name;
+            }
+          } catch (e) {
+            console.warn(`Reverse geocode failed for ${name}`, e);
+          }
+        }
+      }
+
+      if (!addr) addr = "Address not available";
 
       const rawResult = {
         name,
@@ -161,15 +184,17 @@ export async function search_restaurant(params: any) {
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
       return validated.success ? validated.data : null;
-    }).filter(Boolean).slice(0, 5);
+    }));
 
-    if (results.length > 0) {
-      await cache.set(cacheKey, results, CACHE_TTLS.RESTAURANTS);
+    const finalResults = results.filter(Boolean).slice(0, 5) as any[];
+
+    if (finalResults.length > 0) {
+      await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
     }
 
     return {
       success: true,
-      result: results
+      result: finalResults
     };
   } catch (error: any) {
     console.error("Error in search_restaurant:", error);

@@ -336,15 +336,22 @@ export default function Home() {
                                         </div>
                                         <button
                                           onClick={() => {
-                                            // Extract time from conversation context if possible, otherwise default
-                                            const time = "7:00 PM"; 
-                                            sendMessage({ text: `I've selected ${r.name} at ${r.address}. Please add this to my calendar for tomorrow at ${time}.` }, {
+                                            const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+                                            const lastText = lastUserMsg?.parts.find(p => p.type === 'text') as any;
+                                            const originalText = lastText?.text || "";
+                                            
+                                            // Simple heuristic to keep the original time/date context if present
+                                            const timeMatch = originalText.match(/(at|for)\s+([\d:]+\s*(am|pm)?|tonight|tomorrow|next\s+\w+)/i);
+                                            const timeContext = timeMatch ? timeMatch[0] : "for tomorrow at 7:00 PM";
+
+                                            const nextMessage = `I've selected ${r.name} (${r.address}). Please add this to my calendar ${timeContext}.`;
+                                            sendMessage({ text: nextMessage }, {
                                               body: { userLocation }
                                             });
                                           }}
-                                          className="text-xs bg-blue-600 text-white px-4 py-2 rounded-md font-bold hover:bg-blue-700 transition-all shadow-sm"
+                                          className="text-xs bg-blue-600 text-white px-4 py-2 rounded-md font-bold hover:bg-blue-700 transition-all shadow-sm active:scale-95"
                                         >
-                                          Select
+                                          Confirm Selection
                                         </button>
                                       </div>
                                     ))}

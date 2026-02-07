@@ -2,36 +2,51 @@ import { IntentClassification } from "./intent-schema";
 
 /**
  * Classifies the user intent using a hybrid approach:
- * 1. Regex for obvious tool-use markers
- * 2. Regex for common "SIMPLE" intents (greetings, thanks, etc.)
- * 3. Fallback to LLM (handled by the caller if this returns something that needs LLM refinement)
+ * 1. Keyword Score system to detect multi-intent or specific tool use
+ * 2. Fallback to simple intent detection
+ * 3. Default to requiring LLM refinement
  */
 export function classifyIntent(input: string): IntentClassification {
   const normalized = input.toLowerCase().trim().replace(/[.,!?;:]/g, '');
 
-  // Heuristic for TOOL_SEARCH
-  const SEARCH_KEYWORDS = /\b(find|search|where|look for|nearby|restaurant|food|eat|dinner|lunch|breakfast|cafe|bar|pub)\b/i;
-  // Heuristic for TOOL_CALENDAR
-  const CALENDAR_KEYWORDS = /\b(plan|book|calendar|event|schedule|add to|meeting|appointment|reminder|ics)\b/i;
+  const SEARCH_KEYWORDS = ['find', 'search', 'where', 'look for', 'nearby', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'breakfast', 'cafe', 'bar', 'pub'];
+  const CALENDAR_KEYWORDS = ['plan', 'book', 'calendar', 'event', 'schedule', 'add to', 'meeting', 'appointment', 'reminder', 'ics'];
 
-  if (CALENDAR_KEYWORDS.test(normalized)) {
+  const words = normalized.split(/\s+/);
+  
+  let searchScore = 0;
+  let calendarScore = 0;
+
+  words.forEach(word => {
+    if (SEARCH_KEYWORDS.includes(word)) searchScore++;
+    if (CALENDAR_KEYWORDS.includes(word)) calendarScore++;
+  });
+
+  if (searchScore > 0 && calendarScore > 0) {
     return {
-      type: "TOOL_CALENDAR",
-      confidence: 0.9,
-      reason: "Detected calendar-related keywords"
+      type: "COMPLEX_PLAN",
+      confidence: 0.95,
+      reason: `Detected both search (${searchScore}) and calendar (${calendarScore}) keywords`
     };
   }
 
-  if (SEARCH_KEYWORDS.test(normalized)) {
+  if (calendarScore > searchScore) {
+    return {
+      type: "TOOL_CALENDAR",
+      confidence: 0.9,
+      reason: `Calendar keywords (${calendarScore}) dominated search keywords (${searchScore})`
+    };
+  }
+
+  if (searchScore > calendarScore) {
     return {
       type: "TOOL_SEARCH",
       confidence: 0.9,
-      reason: "Detected search-related keywords"
+      reason: `Search keywords (${searchScore}) dominated calendar keywords (${calendarScore})`
     };
   }
 
   // Explicit SIMPLE intents - greetings, thanks, etc.
-  // If they don't have tool keywords, and they have these, they are SIMPLE with high confidence.
   const EXACT_SIMPLE_STRINGS = [
     'hi', 'hello', 'hey', 'thanks', 'thank you', 'thx', 'ty', 
     'much appreciated', 'ok', 'okay', 'cool', 'got it', 'sure', 
@@ -46,9 +61,14 @@ export function classifyIntent(input: string): IntentClassification {
     };
   }
 
-  const SIMPLE_KEYWORDS = /\b(hi|hello|hey|greetings|yo|morning|afternoon|evening|thanks|thank you|thx|ty|much appreciated|ok|okay|cool|got it|sure|yes|no|bye|goodbye|help)\b/i;
+  const SIMPLE_KEYWORDS = ['hi', 'hello', 'hey', 'greetings', 'yo', 'morning', 'afternoon', 'evening', 'thanks', 'thank you', 'thx', 'ty', 'much appreciated', 'ok', 'okay', 'cool', 'got it', 'sure', 'yes', 'no', 'bye', 'goodbye', 'help'];
   
-  if (SIMPLE_KEYWORDS.test(normalized)) {
+  let simpleScore = 0;
+  words.forEach(word => {
+    if (SIMPLE_KEYWORDS.includes(word)) simpleScore++;
+  });
+
+  if (simpleScore > 0) {
     return {
       type: "SIMPLE",
       confidence: 0.9,

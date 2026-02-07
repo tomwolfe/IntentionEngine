@@ -67,7 +67,7 @@ export default function Home() {
             isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available'
           );
           const calendarPart = lastMessage.parts.find((p: any) => 
-            isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'call'
+            isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'input-available'
           );
 
           if (searchPart && calendarPart) {

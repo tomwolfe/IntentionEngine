@@ -1,4 +1,4 @@
-import { Plan } from "./schema";
+import { Plan, RestaurantResult } from "./schema";
 import { z } from "zod";
 import { Redis } from "@upstash/redis";
 import { env } from "./config";
@@ -19,6 +19,9 @@ export const AuditOutcomeSchema = z.object({
   message: z.string(),
   latency_ms: z.number().optional(),
   tokens_used: z.number().optional(),
+  restaurant: z.any().optional(), // Using any to avoid circularity or complex imports if needed, but we have RestaurantResult
+  calendar_event_url: z.string().optional(),
+  wine_suggestion: z.string().optional().nullable(),
 });
 
 export type AuditOutcome = z.infer<typeof AuditOutcomeSchema>;

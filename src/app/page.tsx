@@ -60,13 +60,13 @@ export default function Home() {
         // Intercept and fix tool parameters for special intents
         // This ensures data flow between sequential tool calls in the same turn
         const messages = options.messages || [];
-        const lastMessage = messages[messages.length - 1];
+        const lastAssistantMessage = [...messages].reverse().find((m: any) => m.role === 'assistant');
 
-        if (lastMessage?.role === 'assistant' && activeIntent?.isSpecialIntent) {
-          const searchPart = lastMessage.parts.find((p: any) => 
+        if (lastAssistantMessage && activeIntent?.isSpecialIntent) {
+          const searchPart = lastAssistantMessage.parts.find((p: any) => 
             isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available'
           );
-          const calendarPart = lastMessage.parts.find((p: any) => 
+          const calendarPart = lastAssistantMessage.parts.find((p: any) => 
             isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'input-available'
           );
 
@@ -93,6 +93,25 @@ export default function Home() {
     transport: customTransport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
+
+  useEffect(() => {
+    if (activeIntent?.isSpecialIntent && status === 'ready' && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.role === 'assistant') {
+        const searchPart = lastMessage.parts.find(p => 
+          isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available'
+        );
+        const calendarPart = lastMessage.parts.find(p => 
+          isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'input-available'
+        );
+
+        if (searchPart && calendarPart) {
+          sendMessage({ text: "" }, { body: { userLocation, isSpecialIntent: true } });
+          setIntentionStatus(null);
+        }
+      }
+    }
+  }, [messages, status, activeIntent, userLocation, sendMessage]);
 
   const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse);
 
@@ -143,29 +162,7 @@ export default function Home() {
     
     if (classification.isSpecialIntent) {
       setIntentionStatus("Curating...");
-      try {
-        // Use the new Jobsian flow for special intents
-        const intentRes = await fetch("/api/intent", {
-          method: "POST",
-          body: JSON.stringify({ intent: currentInput, user_location: userLocation, user_id: "sarah_id" }),
-          headers: { "Content-Type": "application/json" }
-        });
-        const { plan, audit_log_id } = await intentRes.json();
-        
-        setIntentionStatus("Executing...");
-        const execRes = await fetch("/api/execute", {
-          method: "POST",
-          body: JSON.stringify({ audit_log_id, step_index: 0, user_confirmed: true }),
-          headers: { "Content-Type": "application/json" }
-        });
-        const { log } = await execRes.json();
-        
-        setFinalOutcome(log.final_outcome);
-        setIntentionStatus(null);
-      } catch (err) {
-        console.error("Special execution failed", err);
-        setIntentionStatus("Failed to realize intention.");
-      }
+      await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: true } });
       return;
     }
 

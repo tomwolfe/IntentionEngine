@@ -18,6 +18,18 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
   });
 }
 
+export const vibeMemory = new Map<string, string[]>();
+
+function getSuggestedWine(cuisine: string): string {
+  const c = cuisine.toLowerCase();
+  if (c.includes('italian') || c.includes('pasta')) return "Pinot Noir";
+  if (c.includes('french') || c.includes('steak')) return "Cabernet Sauvignon";
+  if (c.includes('seafood') || c.includes('fish')) return "Chardonnay";
+  if (c.includes('japanese') || c.includes('sushi')) return "Junmai Ginjo Sake";
+  if (c.includes('spanish') || c.includes('tapas')) return "Tempranillo";
+  return "Sparkling Rosé";
+}
+
 export async function geocode_location(params: any) {
   const validated = GeocodeLocationSchema.safeParse(params);
   if (!validated.success) {
@@ -55,6 +67,15 @@ export async function search_restaurant(params: any) {
   }
   
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
+
+  // Vibe Memory Bias: If it's a special/romantic request and cuisine isn't specified, use memory
+  if (romantic && !cuisine) {
+    const history = vibeMemory.get("special_cuisines") || [];
+    if (history.length > 0) {
+      cuisine = history[0]; // Bias towards most recent
+      console.log(`Vibe Memory Bias: Using ${cuisine} from memory`);
+    }
+  }
   
   if ((lat === undefined || lon === undefined) && location) {
     const geo = await geocode_location({ location });
@@ -173,13 +194,15 @@ export async function search_restaurant(params: any) {
 
       if (!addr) addr = "Address not available";
 
+      const restaurantCuisine = el.tags.cuisine || cuisine || "Restaurant";
       const rawResult = {
         name,
         address: addr,
         coordinates: {
           lat: parseFloat(el.lat || el.center?.lat),
           lon: parseFloat(el.lon || el.center?.lon)
-        }
+        },
+        suggested_wine: romantic ? getSuggestedWine(restaurantCuisine) : undefined
       };
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
@@ -190,6 +213,16 @@ export async function search_restaurant(params: any) {
 
     if (finalResults.length > 0) {
       await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
+      
+      // Update Vibe Memory if romantic
+      if (romantic) {
+        const topCuisine = elements[0]?.tags?.cuisine || cuisine;
+        if (topCuisine) {
+          const history = vibeMemory.get("special_cuisines") || [];
+          const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
+          vibeMemory.set("special_cuisines", newHistory);
+        }
+      }
     }
 
     return {

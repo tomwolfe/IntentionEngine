@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parseDateTime } from '@/lib/date-utils';
 import { GeocodeLocationSchema, SearchRestaurantSchema, IntentRequestSchema } from '@/lib/validation-schemas';
 import { cache } from '@/lib/cache';
-import { geocode_location, search_restaurant, add_calendar_event } from '@/lib/tools';
+import { geocode_location, search_restaurant, add_calendar_event, vibeMemory } from '@/lib/tools';
 import { withReliability } from '@/lib/reliability';
 import { createAuditLog, updateAuditLog, getAuditLog } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,8 +11,10 @@ import { NextRequest, NextResponse } from 'next/server';
 global.fetch = vi.fn();
 
 describe('Restaurant Search Logic', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    vibeMemory.clear();
+    await cache.clear();
   });
 
   it('should filter and sort restaurants correctly', async () => {

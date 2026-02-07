@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
-import { Trash2, Calendar, MapPin, Loader2, Settings, Zap, Brain } from "lucide-react";
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, UIMessage } from "ai";
-import { LocalLLMEngine, LocalModel } from "@/lib/local-llm-engine";
-import { classifyIntent, IntentType } from "@/lib/intent-schema";
-import { AuditOutcome } from "@/lib/audit";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
+import { LocalLLMEngine } from "@/lib/local-llm-engine";
+import { classifyIntent } from "@/lib/intent-schema";
+import { Calendar } from "lucide-react";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -23,80 +22,27 @@ class LocalProvider {
 
 const localProvider = new LocalProvider();
 
-function ModelSettings({ 
-  selectedModel, 
-  setSelectedModel, 
-  onClose 
-}: { 
-  selectedModel: LocalModel, 
-  setSelectedModel: (m: LocalModel) => void, 
-  onClose: () => void 
-}) {
-  return (
-    <div className="fixed inset-y-0 right-0 w-80 bg-white border-l shadow-2xl z-40 p-6 animate-in slide-in-from-right">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Settings size={20} /> Settings
-        </h2>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
-      </div>
-      
-      <div className="space-y-6">
-        <div>
-          <label className="block text-sm font-semibold text-slate-700 mb-3">Local Model Engine</label>
-          <div className="grid gap-3">
-            <button
-              onClick={() => setSelectedModel("phi-2-q4f16_1-MLC")}
-              className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
-                selectedModel === "phi-2-q4f16_1-MLC" 
-                ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" 
-                : "border-slate-200 hover:border-slate-300 bg-slate-50"
-              }`}
-            >
-              <Brain size={18} />
-              <div>
-                <div className="font-bold text-sm">Phi-2</div>
-                <div className="text-xs opacity-70">Strong reasoning, small size</div>
-              </div>
-            </button>
-            
-            <button
-              onClick={() => setSelectedModel("Phi-3.5-mini-instruct-q4f16_1-MLC")}
-              className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
-                selectedModel === "Phi-3.5-mini-instruct-q4f16_1-MLC" 
-                ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-200" 
-                : "border-slate-200 hover:border-slate-300 bg-slate-50"
-              }`}
-            >
-              <Brain size={18} />
-              <div>
-                <div className="font-bold text-sm">Phi-3.5-mini</div>
-                <div className="text-xs opacity-70">Higher intelligence</div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-          <p className="text-xs text-amber-800 leading-relaxed">
-            <strong>Note:</strong> Local models run entirely in your browser. The first load may take a moment to download weights (~100MB - 2GB).
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [input, setInput] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<LocalModel>("phi-2-q4f16_1-MLC");
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const [loadProgress, setLoadProgress] = useState("");
   const [isLocalLoading, setIsLocalLoading] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [localResponse, setLocalResponse] = useState("");
+  const [classificationType, setClassificationType] = useState<string | null>(null);
 
   useEffect(() => {
+    // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
+    const preload = async () => {
+      try {
+        const engine = await localProvider.getEngine(() => {});
+        await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+      } catch (err) {
+        console.warn("Failed to pre-load local model", err);
+      }
+    };
+    preload();
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         position => { setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }) },
@@ -105,31 +51,16 @@ export default function Home() {
     }
   }, []);
 
-  const { messages, setMessages, status, sendMessage, addToolOutput } = useChat({
+  const { messages, status, sendMessage } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
     }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    onError(err) {
-      console.error("Chat error:", err);
-      setError(err.message || "An unexpected error occurred. Please try again.");
-    },
-    async onToolCall({ toolCall }) {
-      console.log("Tool call received on client:", toolCall.toolName);
-      // For server-executed tools, this is mainly for client-side side-effects
-      // The actual rendering is handled in the message loop below.
-    },
   });
 
   const isLoading = status === "streaming" || status === "submitted" || isLocalLoading;
 
-  const handleClearChat = () => {
-    setMessages([]);
-    setError(null);
-    localStorage.removeItem("chat_history");
-  };
-
-  const createAuditLog = async (intent: string, outcome: AuditOutcome | string) => {
+  const createAuditLog = async (intent: string, outcome: any) => {
     try {
       await fetch("/api/audit", {
         method: "POST",
@@ -137,7 +68,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" }
       });
     } catch (err) {
-      console.warn("Failed to create audit log for local execution", err);
+      console.warn("Audit log failed", err);
     }
   };
 
@@ -146,267 +77,149 @@ export default function Home() {
     if (!input.trim() || isLoading) return;
 
     const currentInput = input.trim();
-    setInput("");
-    setError(null);
-
     const classification = classifyIntent(currentInput);
+    setClassificationType(classification.type);
+    setIsSubmitted(true);
+    setInput("");
 
     if (classification.type === "SIMPLE") {
       setIsLocalLoading(true);
       try {
-        const userMsg: UIMessage = { 
-          id: Math.random().toString(), 
-          role: 'user', 
-          parts: [{ type: 'text', text: currentInput }] 
-        };
-        setMessages(prev => [...prev, userMsg]);
-
         const engine = await localProvider.getEngine(setLoadProgress);
-        await engine.loadModel(selectedModel);
+        await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
         
-        const assistantId = Math.random().toString();
-        let fullText = "";
-        
-        const response = await engine.generateStream(currentInput, messages.map(m => ({
-          role: m.role,
-          content: m.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('')
-        })), (text) => {
-          fullText = text;
-          setMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.role === 'assistant' && last.id === assistantId) {
-              return [...prev.slice(0, -1), { ...last, parts: [{ type: 'text', text }] }];
-            }
-            return [...prev, { id: assistantId, role: 'assistant', parts: [{ type: 'text', text }] }];
-          });
+        const response = await engine.generateStream(currentInput, [], (text) => {
+          setLocalResponse(text);
         });
 
-        await createAuditLog(currentInput, {
-          status: "SUCCESS",
-          message: response
-        });
+        await createAuditLog(currentInput, { status: "SUCCESS", message: response });
       } catch (err: any) {
-        console.error("Local execution failed:", err);
-        setError(`Local execution failed: ${err.message}. Falling back to cloud...`);
-        // Fallback to cloud if local fails (optional, but good for UX)
+        console.error("Local failed", err);
         await sendMessage({ text: currentInput }, { body: { userLocation } });
       } finally {
         setIsLocalLoading(false);
-        setLoadProgress("");
       }
     } else {
-      try {
-        await sendMessage({ text: currentInput }, { body: { userLocation } });
-      } catch (err: any) {
-        setError(err.message || "Failed to send message");
-      }
+      await sendMessage({ text: currentInput }, { body: { userLocation } });
     }
   };
 
-  const handleRetry = () => {
-    if (messages.length > 0) {
-      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-      if (lastUserMessage) {
-        setError(null);
-        sendMessage({ text: (lastUserMessage.parts.find(p => p.type === 'text') as any)?.text || "" }, {
-          body: { userLocation }
-        });
+  const outcomeContent = useMemo(() => {
+    if (classificationType === "SIMPLE") {
+      if (isLocalLoading && !localResponse) {
+        return <p className="text-2xl font-light text-slate-400 animate-pulse">Consulting local intelligence...</p>;
       }
+      if (localResponse) {
+        return <p className="text-xl font-light text-slate-800 leading-relaxed">{localResponse}</p>;
+      }
+      return null;
     }
-  };
+
+    const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
+    if (!lastAssistantMessage) {
+      return status === "submitted" ? <p className="text-2xl font-light text-slate-400 animate-pulse">Orchestrating...</p> : null;
+    }
+
+    return (
+      <div className="space-y-6">
+        {lastAssistantMessage.parts.map((part, i) => {
+          if (part.type === 'text') {
+            return <p key={i} className="text-xl font-light text-slate-800 leading-relaxed">{part.text}</p>;
+          }
+          if (isToolUIPart(part)) {
+            const toolName = getToolName(part);
+            if (part.state === 'call') {
+              return (
+                <p key={i} className="text-lg text-slate-400 italic font-light animate-in fade-in duration-300">
+                  {toolName === 'search_restaurant' ? 'Finding the perfect table...' : 
+                   toolName === 'add_calendar_event' ? 'Securing your schedule...' : 
+                   `Executing ${toolName.replace(/_/g, ' ')}...`}
+                </p>
+              );
+            }
+            if (part.state === 'output-available') {
+              const output = part.output as any;
+              if (toolName === 'search_restaurant' && output.success && Array.isArray(output.result)) {
+                return (
+                  <div key={i} className="space-y-4 pt-4">
+                    {output.result.slice(0, 1).map((r: any, idx: number) => (
+                      <div key={idx} className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{r.name}</h3>
+                          <span className="bg-blue-50 text-blue-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">Recommended</span>
+                        </div>
+                        <p className="text-slate-500 text-lg mb-6">{r.address}</p>
+                        {r.suggested_wine && (
+                          <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
+                            <p className="text-xs text-amber-900/60 font-bold uppercase tracking-widest mb-1">Vibe Tuning</p>
+                            <p className="text-xl text-amber-800 font-serif italic">“Pair with {r.suggested_wine} to elevate the evening.”</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => {
+                            const nextMessage = `I've selected ${r.name}. Please add this to my calendar.`;
+                            sendMessage({ text: nextMessage }, { body: { userLocation } });
+                          }}
+                          className="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
+                        >
+                          Confirm Selection
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+              if (toolName === 'add_calendar_event' && output.success && output.result?.download_url) {
+                return (
+                  <div key={i} className="flex flex-col items-center gap-6 p-10 bg-green-50/50 rounded-[2.5rem] border border-green-100 animate-in zoom-in-95 duration-500 mt-4">
+                    <p className="text-green-800 font-bold text-xl text-center leading-tight">Outcome achieved.<br/>Your calendar is updated.</p>
+                    <a 
+                      href={output.result.download_url}
+                      className="flex items-center gap-3 bg-green-600 text-white px-10 py-4 rounded-full font-bold text-lg hover:bg-green-700 transition-all shadow-lg shadow-green-200 active:scale-95"
+                    >
+                      <Calendar size={24} />
+                      Download (.ics)
+                    </a>
+                  </div>
+                );
+              }
+            }
+          }
+          return null;
+        })}
+      </div>
+    );
+  }, [messages, status, localResponse, isLocalLoading, userLocation, sendMessage, classificationType]);
 
   return (
-    <main className="max-w-4xl mx-auto p-8 relative">
-      {/* Sidebar Toggle */}
-      <button 
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed top-8 right-8 p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors z-50"
-      >
-        <Settings size={20} className={isSidebarOpen ? "animate-spin-slow" : ""} />
-      </button>
-
-      {/* Settings Sidebar */}
-      {isSidebarOpen && (
-        <ModelSettings 
-          selectedModel={selectedModel} 
-          setSelectedModel={setSelectedModel} 
-          onClose={() => setIsSidebarOpen(false)} 
-        />
-      )}
-
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Intention Engine</h1>
-        <div className="flex items-center gap-4">
-          {messages.length > 0 && (
-            <button
-              onClick={handleClearChat}
-              className="flex items-center gap-2 text-red-500 hover:text-red-700 text-sm font-medium transition-colors"
-            >
-              <Trash2 size={16} />
-              Clear Chat
-            </button>
-          )}
-        </div>
-      </div>
-      
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-8 flex justify-between items-center">
-          <p className="text-sm">{error}</p>
-          <button 
-            onClick={handleRetry}
-            className="text-xs bg-red-100 hover:bg-red-200 px-3 py-1 rounded font-bold transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      
-      <div className="bg-white p-6 rounded-lg shadow-sm border mb-8">
-        <form onSubmit={onFormSubmit} className="space-y-4">
-          <label className="block text-sm font-medium mb-2">What is your intent?</label>
-          <div className="flex gap-2">
+    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
+      {!isSubmitted ? (
+        <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
+          <form onSubmit={onFormSubmit}>
             <input
               type="text"
-              className="flex-1 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="e.g. plan a dinner and add to calendar"
+              autoFocus
+              className="w-full bg-transparent border-b border-slate-200 py-6 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
+              placeholder="What's your intention?"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
             />
-            <button
-              type="submit"
-              disabled={isLoading || !input}
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Thinking...
-                </>
-              ) : (
-                "Send"
-              )}
-            </button>
-          </div>
-          {userLocation && (<p className="text-xs text-slate-500 flex items-center gap-1"><MapPin size={12} />Location: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}</p>)}
-          {loadProgress && (
-            <div className="text-[10px] font-mono text-blue-500 mt-2">
-              {loadProgress}
+          </form>
+        </div>
+      ) : (
+        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-700">
+          {outcomeContent ? (
+            <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
+               {outcomeContent}
+            </div>
+          ) : (
+            <div className="text-center py-20">
+               <p className="text-3xl font-light text-slate-300 animate-pulse tracking-tight">Orchestrating outcome...</p>
             </div>
           )}
-        </form>
-      </div>
-
-      <div className="space-y-6">
-        {messages.map((m) => (
-          <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[80%] p-4 rounded-lg border shadow-sm ${
-              m.role === 'user' ? 'bg-blue-50 border-blue-100' : 'bg-white border-slate-200'
-            }`}>
-              {m.parts.map((part, partIndex) => {
-                if (part.type === 'text') {
-                  return <p key={partIndex} className="text-sm whitespace-pre-wrap">{part.text}</p>;
-                }
-                
-                if (isToolUIPart(part)) {
-                  const toolInvocation = part;
-                  const toolName = getToolName(toolInvocation);
-                  
-                  return (
-                    <div key={partIndex} className="mt-4 border-t pt-4">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
-                        {toolName === 'search_restaurant' ? <MapPin size={12} /> : <Calendar size={12} />}
-                        {toolName.replace(/_/g, ' ')}
-                      </div>
-                      
-                      {toolInvocation.state === 'output-available' ? (
-                        <div className="space-y-2">
-                          {(() => {
-                            const output = toolInvocation.output as any;
-                            return (
-                              <>
-                                {toolName === 'search_restaurant' && output.success && Array.isArray(output.result) ? (
-                                  <div className="space-y-2">
-                                    <div className="text-xs text-slate-500 mb-1">Found {output.result.length} romantic options:</div>
-                                    {output.result.map((r: any, i: number) => (
-                                      <div key={i} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">
-                                        <div>
-                                          <p className="font-bold text-sm text-slate-800">{r.name}</p>
-                                          <p className="text-xs text-slate-500">{r.address}</p>
-                                        </div>
-                                        <button
-                                          onClick={() => {
-                                            const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-                                            const lastText = lastUserMsg?.parts.find(p => p.type === 'text') as any;
-                                            const originalText = lastText?.text || "";
-                                            
-                                            // Simple heuristic to keep the original time/date context if present
-                                            const timeMatch = originalText.match(/(at|for)\s+([\d:]+\s*(am|pm)?|tonight|tomorrow|next\s+\w+)/i);
-                                            const timeContext = timeMatch ? timeMatch[0] : "for tomorrow at 7:00 PM";
-
-                                            const nextMessage = `I've selected ${r.name} (${r.address}). Please add this to my calendar ${timeContext}.`;
-                                            sendMessage({ text: nextMessage }, {
-                                              body: { userLocation }
-                                            });
-                                          }}
-                                          className="text-xs bg-blue-600 text-white px-4 py-2 rounded-md font-bold hover:bg-blue-700 transition-all shadow-sm active:scale-95"
-                                        >
-                                          Confirm Selection
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) :
-                                 toolName === 'add_calendar_event' && output.success && output.result?.download_url ? (
-                                  <div className="py-2">
-                                    <div className="bg-green-50 border border-green-100 p-4 rounded-lg flex flex-col items-center gap-3">
-                                      <p className="text-sm text-green-800 font-medium text-center">Calendar event generated successfully!</p>
-                                      <a 
-                                        href={output.result.download_url}
-                                        className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition-all shadow-md text-sm"
-                                      >
-                                        <Calendar size={18} />
-                                        Download (.ics)
-                                      </a>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <pre className="text-xs bg-slate-50 p-2 rounded overflow-auto max-h-40 border border-slate-200">
-                                    {JSON.stringify(output, null, 2)}
-                                  </pre>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      ) : toolInvocation.state === 'output-error' ? (
-                        <div className="text-xs text-red-500 font-mono bg-red-50 p-2 rounded border border-red-100">
-                          Error: {toolInvocation.errorText}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm text-blue-600 font-medium animate-pulse py-2">
-                          <Loader2 size={16} className="animate-spin" />
-                          {toolName === 'search_restaurant' ? 'Searching for restaurants...' : 
-                           toolName === 'add_calendar_event' ? 'Generating calendar event...' : 
-                           `Running ${toolName.replace(/_/g, ' ')}...`}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                
-                return null;
-              })}
-            </div>
-          </div>
-        ))}
-        {isLoading && messages[messages.length - 1]?.role === 'user' && (
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin" />
-            Thinking...
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }

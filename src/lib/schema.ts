@@ -7,6 +7,7 @@ export const RestaurantResultSchema = z.object({
     lat: z.number(),
     lon: z.number(),
   }),
+  suggested_wine: z.string().optional(),
 });
 
 export type RestaurantResult = z.infer<typeof RestaurantResultSchema>;

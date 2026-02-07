@@ -40,5 +40,16 @@ export const cache = {
       }
     }
     memoryCache.set(key, value, { ttl: ttlSeconds * 1000 });
+  },
+
+  async clear(): Promise<void> {
+    if (redis) {
+      try {
+        await redis.flushdb();
+      } catch (err) {
+        console.warn("Redis flushdb failed:", err);
+      }
+    }
+    memoryCache.clear();
   }
 };

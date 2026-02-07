@@ -25,7 +25,59 @@ export default function Home() {
   const [activeIntent, setActiveIntent] = useState<any>(null);
   const [showTick, setShowTick] = useState(false);
   const [deliveredUrl, setDeliveredUrl] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const userLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    userLocationRef.current = userLocation;
+  }, [userLocation]);
+
+  const initRecognition = () => {
+    if (!('webkitSpeechRecognition' in window) || recognitionRef.current) return;
+    
+    const recognition = new (window as any).webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[event.results.length - 1][0].transcript;
+      if (transcript.trim()) {
+        handleIntent(transcript.trim());
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      // Prevent rapid flicker by adding a small delay and checking if we still want to listen
+      if (recognitionRef.current) {
+        setTimeout(() => {
+          try { 
+            if (recognitionRef.current) recognitionRef.current.start(); 
+          } catch (e) { 
+            console.error("Auto-restart failed", e); 
+          }
+        }, 100);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech Recognition Error", event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        recognitionRef.current = null;
+        setIsListening(false);
+      }
+    };
+
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Initial start failed", e);
+    }
+  };
 
   useEffect(() => {
     // Pre-load the Phi-3.5 model instantly on app start
@@ -46,41 +98,6 @@ export default function Home() {
       );
     }
 
-    // Initialize Persistent Silent Voice Listening
-    const initRecognition = () => {
-      if (!('webkitSpeechRecognition' in window)) return;
-      
-      const recognition = new (window as any).webkitSpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[event.results.length - 1][0].transcript;
-        if (transcript.trim()) {
-          handleIntent(transcript.trim());
-        }
-      };
-
-      recognition.onend = () => {
-        if (recognitionRef.current) {
-          try { recognition.start(); } catch (e) {}
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech Recognition Error", event.error);
-        if (event.error === 'not-allowed') {
-          console.warn("Microphone access denied. Ambient interface disabled.");
-          recognitionRef.current = null;
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    };
-
-    initRecognition();
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.onend = null;
@@ -182,7 +199,7 @@ export default function Home() {
         console.error("Local processing failed", err);
       }
     } else {
-      await sendMessage({ text: input }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
+      await sendMessage({ text: input }, { body: { userLocation: userLocationRef.current, isSpecialIntent: classification.isSpecialIntent } });
     }
   };
 
@@ -253,7 +270,19 @@ export default function Home() {
          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-slate-200/30 rounded-full blur-[120px] animate-pulse" />
       </div>
 
-      <div className="w-full max-w-3xl flex flex-col items-center">
+      <div className="w-full max-w-3xl flex flex-col items-center z-10">
+        {!isListening && !activeIntent && (
+          <button 
+            onClick={initRecognition}
+            className="group relative flex items-center justify-center"
+          >
+            <div className="absolute inset-0 bg-blue-400/20 rounded-full blur-2xl group-hover:bg-blue-400/40 transition-all duration-1000 animate-pulse" />
+            <div className="relative w-32 h-32 bg-white/80 backdrop-blur-xl rounded-full border border-white shadow-2xl flex items-center justify-center transition-transform duration-700 hover:scale-110 active:scale-95">
+               <div className="w-4 h-4 bg-slate-200 rounded-full animate-ping" />
+            </div>
+          </button>
+        )}
+
         {activeIntent?.isSpecialIntent && outcomeContent && (
           <div className="w-full animate-in fade-in slide-in-from-bottom-12 duration-1000">
              {outcomeContent}

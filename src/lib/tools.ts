@@ -18,7 +18,8 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
   });
 }
 
-export const vibeMemory = new Map<string, string[]>();
+// Vibe Memory is now handled via the central Redis cache
+const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
 
 function getSuggestedWine(cuisine: string): string {
   const c = cuisine.toLowerCase();
@@ -70,7 +71,7 @@ export async function search_restaurant(params: any) {
 
   // Vibe Memory Bias: If it's a special/romantic request and cuisine isn't specified, use memory
   if (romantic && !cuisine) {
-    const history = vibeMemory.get("special_cuisines") || [];
+    const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
     if (history.length > 0) {
       cuisine = history[0]; // Bias towards most recent
       console.log(`Vibe Memory Bias: Using ${cuisine} from memory`);
@@ -218,9 +219,9 @@ export async function search_restaurant(params: any) {
       if (romantic) {
         const topCuisine = elements[0]?.tags?.cuisine || cuisine;
         if (topCuisine) {
-          const history = vibeMemory.get("special_cuisines") || [];
+          const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
           const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
-          vibeMemory.set("special_cuisines", newHistory);
+          await cache.set(VIBE_MEMORY_KEY, newHistory, 86400 * 30); // 30 days
         }
       }
     }

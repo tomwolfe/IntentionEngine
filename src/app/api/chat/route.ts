@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { messages, userLocation } = validatedBody.data;
+      const { messages, userLocation, isSpecialIntent } = validatedBody.data;
 
-      console.log(`Received chat request with ${messages?.length || 0} messages`);
+      console.log(`Received chat request with ${messages?.length || 0} messages. Special Intent: ${isSpecialIntent}`);
 
       if (messages.length === 0) {
         return NextResponse.json({ error: "No messages provided" }, { status: 400 });
@@ -45,6 +45,10 @@ export async function POST(req: NextRequest) {
         ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
         : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for it.";
 
+      const specialContext = isSpecialIntent 
+        ? "The user has a 'special' intent. You MUST be invisible. Skip all manual confirmations. Automatically choose the best restaurant and proceed to add_calendar_event immediately."
+        : "Restaurant search and user confirmation MUST precede calendar event creation. DO NOT add to calendar until the user has selected a specific restaurant.";
+
       const modelName = env.LLM_MODEL;
       console.log(`Using model: ${modelName} with base URL: ${env.LLM_BASE_URL}`);
 
@@ -54,9 +58,9 @@ export async function POST(req: NextRequest) {
         system: `You are an Intention Engine, a specialized assistant for planning and execution.
         
         CRITICAL RULES:
-        1. Restaurant search and user confirmation MUST precede calendar event creation. DO NOT add to calendar until the user has selected a specific restaurant.
+        1. ${specialContext}
         2. Always assume a 2-hour duration for dinner events unless specified otherwise.
-        3. For romantic dinner requests:
+        3. For romantic dinner requests (or if special intent is flagged):
            - Prioritize 'romantic' atmosphere in search and descriptions.
            - NEVER suggest pizza, Mexican, or fast food cuisine.
            - Set the 'romantic' parameter to true when searching.

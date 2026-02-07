@@ -42,6 +42,7 @@ export const ChatRequestSchema = z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
   }).nullable().optional(),
+  isSpecialIntent: z.boolean().optional(),
 });
 
 export const IntentResponseSchema = z.object({

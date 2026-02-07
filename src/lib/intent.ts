@@ -11,22 +11,28 @@ export function classifyIntent(input: string): IntentClassification {
 
   const SEARCH_KEYWORDS = ['find', 'search', 'where', 'look for', 'nearby', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'breakfast', 'cafe', 'bar', 'pub'];
   const CALENDAR_KEYWORDS = ['plan', 'book', 'calendar', 'event', 'schedule', 'add to', 'meeting', 'appointment', 'reminder', 'ics'];
+  const SPECIAL_KEYWORDS = ['special', 'nice', 'perfect', 'romantic', 'memorable', 'surprise', 'impress', 'anniversary', 'birthday', 'date'];
 
   const words = normalized.split(/\s+/);
   
   let searchScore = 0;
   let calendarScore = 0;
+  let specialScore = 0;
 
   words.forEach(word => {
     if (SEARCH_KEYWORDS.includes(word)) searchScore++;
     if (CALENDAR_KEYWORDS.includes(word)) calendarScore++;
+    if (SPECIAL_KEYWORDS.includes(word)) specialScore++;
   });
+
+  const isSpecialIntent = specialScore > 0;
 
   if (searchScore > 0 && calendarScore > 0) {
     return {
       type: "COMPLEX_PLAN",
       confidence: 0.95,
-      reason: `Detected both search (${searchScore}) and calendar (${calendarScore}) keywords`
+      reason: `Detected both search (${searchScore}) and calendar (${calendarScore}) keywords`,
+      isSpecialIntent
     };
   }
 
@@ -34,15 +40,17 @@ export function classifyIntent(input: string): IntentClassification {
     return {
       type: "TOOL_CALENDAR",
       confidence: 0.9,
-      reason: `Calendar keywords (${calendarScore}) dominated search keywords (${searchScore})`
+      reason: `Calendar keywords (${calendarScore}) dominated search keywords (${searchScore})`,
+      isSpecialIntent
     };
   }
 
-  if (searchScore > calendarScore) {
+  if (searchScore > calendarScore || (isSpecialIntent && searchScore === 0 && calendarScore === 0)) {
     return {
       type: "TOOL_SEARCH",
       confidence: 0.9,
-      reason: `Search keywords (${searchScore}) dominated calendar keywords (${calendarScore})`
+      reason: isSpecialIntent && searchScore === 0 ? "Special intent detected, defaulting to search" : `Search keywords (${searchScore}) dominated calendar keywords (${calendarScore})`,
+      isSpecialIntent
     };
   }
 

@@ -7,6 +7,7 @@ export interface IntentClassification {
   type: IntentType;
   confidence: number;
   reason: string;
+  isSpecialIntent?: boolean;
 }
 
 export { classifyIntent } from "./intent";

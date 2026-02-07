@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
-import { Calendar, Mic, MicOff } from "lucide-react";
+import { Check } from "lucide-react";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
   
-  async getEngine(onProgress: (text: string) => void) {
+  async getEngine() {
     if (!this.engine) {
-      this.engine = new LocalLLMEngine((report) => {
-        onProgress(report.text);
-      });
+      this.engine = new LocalLLMEngine(() => {});
     }
     return this.engine;
   }
@@ -24,17 +22,16 @@ const localProvider = new LocalProvider();
 
 export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [input, setInput] = useState("");
-  const [loadProgress, setLoadProgress] = useState("");
-  const [localResponse, setLocalResponse] = useState("");
   const [activeIntent, setActiveIntent] = useState<any>(null);
-  const [isListening, setIsListening] = useState(false);
+  const [showTick, setShowTick] = useState(false);
+  const [deliveredUrl, setDeliveredUrl] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
+    // Pre-load the Phi-3.5 model instantly on app start
     const preload = async () => {
       try {
-        const engine = await localProvider.getEngine(() => {});
+        const engine = await localProvider.getEngine();
         await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
       } catch (err) {
         console.warn("Failed to pre-load local model", err);
@@ -48,6 +45,49 @@ export default function Home() {
         error => { console.error("Error getting location", error); }
       );
     }
+
+    // Initialize Persistent Silent Voice Listening
+    const initRecognition = () => {
+      if (!('webkitSpeechRecognition' in window)) return;
+      
+      const recognition = new (window as any).webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[event.results.length - 1][0].transcript;
+        if (transcript.trim()) {
+          handleIntent(transcript.trim());
+        }
+      };
+
+      recognition.onend = () => {
+        if (recognitionRef.current) {
+          try { recognition.start(); } catch (e) {}
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech Recognition Error", event.error);
+        if (event.error === 'not-allowed') {
+          console.warn("Microphone access denied. Ambient interface disabled.");
+          recognitionRef.current = null;
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    };
+
+    initRecognition();
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    };
   }, []);
 
   const customTransport = useMemo(() => {
@@ -57,8 +97,6 @@ export default function Home() {
 
     return {
       sendMessages: async (options: any) => {
-        // Intercept and fix tool parameters for special intents
-        // This ensures data flow between sequential tool calls in the same turn
         const messages = options.messages || [];
         const lastMessage = messages[messages.length - 1];
 
@@ -82,237 +120,151 @@ export default function Home() {
             }
           }
         }
-
         return baseTransport.sendMessages(options);
       },
       reconnectToStream: (options: any) => baseTransport.reconnectToStream(options),
     };
   }, [activeIntent]);
 
-  const { messages, status, sendMessage } = useChat({
+  const { messages, sendMessage } = useChat({
     transport: customTransport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
-  const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse);
+  const handleOutcomeDelivery = async (downloadUrl: string, filename: string) => {
+    if (deliveredUrl === downloadUrl) return;
+    setDeliveredUrl(downloadUrl);
 
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert("Speech recognition not supported in this browser.");
-      return;
+    if (navigator.share) {
+      try {
+        const response = await fetch(downloadUrl);
+        const blob = await response.blob();
+        const file = new File([blob], filename, { type: 'text/calendar' });
+        await navigator.share({
+          files: [file],
+          title: 'Your Outcome',
+          text: 'The intention has been manifested.',
+        });
+        return;
+      } catch (err) {
+        console.warn("Share failed, falling back to silent download", err);
+      }
     }
 
-    const recognition = new (window as any).webkitSpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
-    };
-
-    recognition.start();
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
-  const createAuditLog = async (intent: string, outcome: any) => {
-    try {
-      await fetch("/api/audit", {
-        method: "POST",
-        body: JSON.stringify({ intent, final_outcome: outcome }),
-        headers: { "Content-Type": "application/json" }
-      });
-    } catch (err) {
-      console.warn("Audit log failed", err);
-    }
-  };
-
-  const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const currentInput = input.trim();
-    const classification = classifyIntent(currentInput);
+  const handleIntent = async (input: string) => {
+    const classification = classifyIntent(input);
     setActiveIntent(classification);
-    setInput("");
+    setDeliveredUrl(null);
 
     if (classification.type === "SIMPLE") {
-      setLocalResponse("");
       try {
-        const engine = await localProvider.getEngine(setLoadProgress);
+        const engine = await localProvider.getEngine();
         await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+        await engine.generateStream(input, [], () => {});
         
-        const response = await engine.generateStream(currentInput, [], (text) => {
-          setLocalResponse(text);
-        });
+        setShowTick(true);
+        setTimeout(() => setShowTick(false), 2000);
 
-        await createAuditLog(currentInput, { status: "SUCCESS", message: response });
-      } catch (err: any) {
-        console.error("Local failed", err);
-        await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
+        await fetch("/api/audit", {
+          method: "POST",
+          body: JSON.stringify({ intent: input, final_outcome: { status: "SUCCESS", simple: true } }),
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (err) {
+        console.error("Local processing failed", err);
       }
     } else {
-      await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
+      await sendMessage({ text: input }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
     }
   };
 
   const outcomeContent = useMemo(() => {
-    if (activeIntent?.type === "SIMPLE") {
-      if (localResponse) {
-        return <p className="text-xl font-light text-slate-800 leading-relaxed">{localResponse}</p>;
-      }
-      return null;
-    }
+    if (!activeIntent?.isSpecialIntent) return null;
 
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistantMessage) return null;
 
-    // For special intent, we wait until everything is done or show a unified card
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
-    const textPart = lastAssistantMessage.parts.find(p => p.type === 'text');
 
-    if (activeIntent?.isSpecialIntent) {
-      if (searchPart && calendarPart) {
-        const restaurant = (searchPart as any).output.result[0];
+    if (searchPart && calendarPart) {
+      const restaurant = (searchPart as any).output.result[0];
+      return (
+        <div className="p-12 border border-white/40 rounded-[3rem] bg-white/60 backdrop-blur-3xl shadow-[0_32px_64px_rgba(0,0,0,0.06)] animate-in zoom-in-95 duration-1000">
+          <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
+          <p className="text-slate-500 text-xl mb-8 font-light">{restaurant.address}</p>
+          {restaurant.suggested_wine && (
+            <div className="bg-amber-50/40 p-8 rounded-3xl border border-amber-100/50">
+              <p className="text-2xl text-amber-900/80 font-serif italic leading-relaxed">
+                “Pair with {restaurant.suggested_wine} to elevate the evening. A bottle has been pre-ordered.”
+              </p>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return null;
+  }, [messages, activeIntent]);
+
+  // Handle proactive delivery for all tool-based intents
+  useEffect(() => {
+    if (activeIntent) {
+      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
+      const calendarPart = lastAssistantMessage?.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
+      const searchPart = lastAssistantMessage?.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
+      
+      if (calendarPart) {
+        const restaurant = searchPart ? (searchPart as any).output.result[0] : null;
         const calendarResult = (calendarPart as any).output.result;
-        
-        // Data flow fix: ensure the download URL uses the actual restaurant details found
         let downloadUrl = calendarResult.download_url;
+
         if (restaurant && downloadUrl) {
           try {
             const url = new URL(downloadUrl, window.location.origin);
             url.searchParams.set('location', restaurant.address);
             url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
             downloadUrl = url.pathname + url.search;
-          } catch (e) {
-            console.warn("Failed to repair download URL", e);
-          }
+          } catch (e) {}
         }
 
-        return (
-          <div className="space-y-4 pt-4">
-            <div className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
-              <h3 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">{restaurant.name}</h3>
-              <p className="text-slate-500 text-lg mb-6">{restaurant.address}</p>
-              {restaurant.suggested_wine && (
-                <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                  <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening. A bottle has been pre-ordered.”</p>
-                </div>
-              )}
-              <a 
-                href={downloadUrl}
-                className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
-              >
-                <Calendar size={24} />
-                Download (.ics)
-              </a>
-            </div>
-            {textPart && <p className="text-center text-slate-400 mt-6 font-medium tracking-tight animate-pulse">{textPart.text}</p>}
-          </div>
-        );
+        if (downloadUrl) {
+          handleOutcomeDelivery(downloadUrl, 'invitation.ics');
+          if (!activeIntent.isSpecialIntent) {
+            setShowTick(true);
+            setTimeout(() => setShowTick(false), 3000);
+          }
+        }
       }
-      return (
-        <div className="flex justify-center items-center py-20">
-          <div className="w-3 h-3 bg-slate-400 rounded-full animate-ping" />
-        </div>
-      );
     }
-
-    return (
-      <div className="space-y-6">
-        {lastAssistantMessage.parts.map((part, i) => {
-          if (part.type === 'text') {
-            return <p key={i} className="text-xl font-light text-slate-800 leading-relaxed">{part.text}</p>;
-          }
-          if (isToolUIPart(part) && part.state === 'output-available') {
-            const toolName = getToolName(part);
-            const output = part.output as any;
-            if (toolName === 'search_restaurant' && output.success && Array.isArray(output.result)) {
-              return (
-                <div key={i} className="space-y-4 pt-4">
-                  {output.result.slice(0, 1).map((r: any, idx: number) => (
-                    <div key={idx} className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{r.name}</h3>
-                        <span className="bg-blue-50 text-blue-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">Recommended</span>
-                      </div>
-                      <p className="text-slate-500 text-lg mb-6">{r.address}</p>
-                      {r.suggested_wine && (
-                        <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                          <p className="text-xs text-amber-900/60 font-bold uppercase tracking-widest mb-1">Vibe Tuning</p>
-                          <p className="text-xl text-amber-800 font-serif italic">“Pair with {r.suggested_wine} to elevate the evening.”</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              );
-            }
-            if (toolName === 'add_calendar_event' && output.success && output.result?.download_url) {
-              return (
-                <div key={i} className="flex flex-col items-center gap-6 p-10 bg-green-50/50 rounded-[2.5rem] border border-green-100 animate-in zoom-in-95 duration-500 mt-4">
-                  <p className="text-green-800 font-bold text-xl text-center leading-tight">Outcome achieved.<br/>Your calendar is updated.</p>
-                  <a 
-                    href={output.result.download_url}
-                    className="flex items-center gap-3 bg-green-600 text-white px-10 py-4 rounded-full font-bold text-lg hover:bg-green-700 transition-all shadow-lg shadow-green-200 active:scale-95"
-                  >
-                    <Calendar size={24} />
-                    Download (.ics)
-                  </a>
-                </div>
-              );
-            }
-          }
-          return null;
-        })}
-      </div>
-    );
-  }, [messages, localResponse, userLocation, sendMessage, activeIntent]);
-
-  const isActuallySubmitted = activeIntent !== null;
-  const showUnifiedOutcome = activeIntent?.isSpecialIntent && outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
+  }, [messages, activeIntent]);
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
-      {!showUnifiedOutcome ? (
-        <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          <form onSubmit={onFormSubmit} className="relative group">
-            <input
-              type="text"
-              autoFocus
-              className="w-full bg-transparent border-b border-slate-200 py-6 pr-16 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
-              placeholder="What's your intention?"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading || isListening}
-            />
-            <div className="absolute right-0 bottom-6 flex items-center gap-4">
-              {isLoading && activeIntent?.isSpecialIntent && (
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-              )}
-              <button
-                type="button"
-                onClick={startListening}
-                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
-                disabled={isLoading}
-              >
-                {isListening ? <MicOff size={32} /> : <Mic size={32} />}
-              </button>
-            </div>
-          </form>
-          {activeIntent && !activeIntent.isSpecialIntent && outcomeContent && (
-             <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
-                {outcomeContent}
-             </div>
-          )}
-        </div>
-      ) : (
-        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-700">
-          <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/40 flex items-center justify-center p-8 transition-all duration-1000 overflow-hidden">
+      <div className="fixed inset-0 pointer-events-none opacity-40">
+         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-200/30 rounded-full blur-[120px] animate-pulse" />
+         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-slate-200/30 rounded-full blur-[120px] animate-pulse" />
+      </div>
+
+      <div className="w-full max-w-3xl flex flex-col items-center">
+        {activeIntent?.isSpecialIntent && outcomeContent && (
+          <div className="w-full animate-in fade-in slide-in-from-bottom-12 duration-1000">
              {outcomeContent}
+          </div>
+        )}
+      </div>
+
+      {showTick && (
+        <div className="fixed bottom-12 right-12 animate-in fade-in zoom-in duration-500">
+          <div className="p-4 bg-white/80 backdrop-blur-md rounded-full shadow-lg border border-slate-100">
+            <Check size={32} className="text-slate-400" />
           </div>
         </div>
       )}

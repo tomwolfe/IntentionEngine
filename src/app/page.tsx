@@ -56,26 +56,6 @@ export default function Home() {
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
-  // Auto-execution for special intent
-  useEffect(() => {
-    if (!activeIntent?.isSpecialIntent) return;
-
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage?.role === 'assistant') {
-      const searchPart = lastMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
-      const hasCalendarPart = lastMessage.parts.some(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event');
-
-      if (searchPart && !hasCalendarPart) {
-        const output = (searchPart as any).output;
-        if (output.success && Array.isArray(output.result) && output.result.length > 0) {
-          const restaurant = output.result[0];
-          const nextMessage = `I've selected ${restaurant.name} at ${restaurant.address}. Please add this to my calendar.`;
-          sendMessage({ text: nextMessage }, { body: { userLocation, isSpecialIntent: true } });
-        }
-      }
-    }
-  }, [messages, activeIntent, sendMessage, userLocation]);
-
   const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse);
 
   const createAuditLog = async (intent: string, outcome: any) => {
@@ -188,15 +168,6 @@ export default function Home() {
                           <p className="text-xl text-amber-800 font-serif italic">“Pair with {r.suggested_wine} to elevate the evening.”</p>
                         </div>
                       )}
-                      <button
-                        onClick={() => {
-                          const nextMessage = `I've selected ${r.name}. Please add this to my calendar.`;
-                          sendMessage({ text: nextMessage }, { body: { userLocation } });
-                        }}
-                        className="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
-                      >
-                        Confirm Selection
-                      </button>
                     </div>
                   ))}
                 </div>

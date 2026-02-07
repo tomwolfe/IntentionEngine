@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
             inputSchema: SearchRestaurantSchema,
             execute: async (params: any) => {
               console.log("Executing search_restaurant", params);
-              return await search_restaurant(params);
+              return await search_restaurant({ ...params, isSpecialIntent });
             },
           }),
           add_calendar_event: tool({

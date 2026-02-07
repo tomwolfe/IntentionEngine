@@ -68,6 +68,11 @@ export async function search_restaurant(params: any) {
   }
   
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
+  const isSpecialIntent = (params as any).isSpecialIntent;
+
+  if (isSpecialIntent) {
+    romantic = true;
+  }
 
   // Vibe Memory Bias: If it's a special/romantic request and cuisine isn't specified, use memory
   if (romantic && !cuisine) {

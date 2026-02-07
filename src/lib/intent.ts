@@ -11,21 +11,19 @@ export function classifyIntent(input: string): IntentClassification {
 
   const SEARCH_KEYWORDS = ['find', 'search', 'where', 'look for', 'nearby', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'breakfast', 'cafe', 'bar', 'pub'];
   const CALENDAR_KEYWORDS = ['plan', 'book', 'calendar', 'event', 'schedule', 'add to', 'meeting', 'appointment', 'reminder', 'ics'];
-  const SPECIAL_KEYWORDS = ['special', 'nice', 'perfect', 'romantic', 'memorable', 'surprise', 'impress', 'anniversary', 'birthday', 'date'];
+  const SPECIAL_KEYWORDS = ['special', 'romantic', 'anniversary', 'birthday', 'surprise', 'impress', 'date'];
 
   const words = normalized.split(/\s+/);
   
   let searchScore = 0;
   let calendarScore = 0;
-  let specialScore = 0;
 
   words.forEach(word => {
     if (SEARCH_KEYWORDS.includes(word)) searchScore++;
     if (CALENDAR_KEYWORDS.includes(word)) calendarScore++;
-    if (SPECIAL_KEYWORDS.includes(word)) specialScore++;
   });
 
-  const isSpecialIntent = specialScore > 0;
+  const isSpecialIntent = SPECIAL_KEYWORDS.some(kw => normalized.includes(kw));
 
   if (searchScore > 0 && calendarScore > 0) {
     return {

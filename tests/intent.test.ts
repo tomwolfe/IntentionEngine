@@ -27,7 +27,24 @@ describe('Intent Classification', () => {
   });
 
   it('should return SIMPLE for short ambiguous input', () => {
-    expect(classifyIntent('abc').type).toBe('SIMPLE');
+    const result = classifyIntent('abc');
+    expect(result.type).toBe('SIMPLE');
+    expect(result.confidence).toBe(0.8);
+  });
+
+  it('should return SIMPLE with low confidence for long unknown input', () => {
+    const result = classifyIntent('This is a relatively long message that does not contain any specific keywords for tools or simple intents.');
+    expect(result.type).toBe('SIMPLE');
+    expect(result.confidence).toBe(0.5);
+  });
+
+  it('should return 1.0 confidence for exact simple strings', () => {
+    expect(classifyIntent('hello').confidence).toBe(1.0);
+    expect(classifyIntent('much appreciated').confidence).toBe(1.0);
+  });
+
+  it('should return 0.9 confidence for simple keywords in sentences', () => {
+    expect(classifyIntent('well hello there').confidence).toBe(0.9);
   });
 
   it('should handle mixed case and whitespace', () => {

@@ -32,12 +32,26 @@ export function classifyIntent(input: string): IntentClassification {
 
   // Explicit SIMPLE intents - greetings, thanks, etc.
   // If they don't have tool keywords, and they have these, they are SIMPLE with high confidence.
+  const EXACT_SIMPLE_STRINGS = [
+    'hi', 'hello', 'hey', 'thanks', 'thank you', 'thx', 'ty', 
+    'much appreciated', 'ok', 'okay', 'cool', 'got it', 'sure', 
+    'yes', 'no', 'bye', 'goodbye', 'help'
+  ];
+  
+  if (EXACT_SIMPLE_STRINGS.includes(normalized)) {
+    return {
+      type: "SIMPLE",
+      confidence: 1.0,
+      reason: "Matched exact simple intent string"
+    };
+  }
+
   const SIMPLE_KEYWORDS = /\b(hi|hello|hey|greetings|yo|morning|afternoon|evening|thanks|thank you|thx|ty|much appreciated|ok|okay|cool|got it|sure|yes|no|bye|goodbye|help)\b/i;
   
   if (SIMPLE_KEYWORDS.test(normalized)) {
     return {
       type: "SIMPLE",
-      confidence: 1.0,
+      confidence: 0.9,
       reason: "Matched common simple intent keywords"
     };
   }

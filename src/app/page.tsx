@@ -237,11 +237,6 @@ export default function Home() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Intention Engine</h1>
         <div className="flex items-center gap-4">
-          {loadProgress && (
-            <div className="text-[10px] font-mono text-slate-400 max-w-[200px] truncate">
-              {loadProgress}
-            </div>
-          )}
           {messages.length > 0 && (
             <button
               onClick={handleClearChat}
@@ -294,6 +289,11 @@ export default function Home() {
             </button>
           </div>
           {userLocation && (<p className="text-xs text-slate-500 flex items-center gap-1"><MapPin size={12} />Location: {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}</p>)}
+          {loadProgress && (
+            <div className="text-[10px] font-mono text-blue-500 mt-2">
+              {loadProgress}
+            </div>
+          )}
         </form>
       </div>
 

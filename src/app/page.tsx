@@ -34,6 +34,7 @@ export default function Home() {
   }, [userLocation]);
 
   const initRecognition = () => {
+    setActiveIntent(null);
     if (!('webkitSpeechRecognition' in window) || recognitionRef.current) return;
     
     const recognition = new (window as any).webkitSpeechRecognition();
@@ -51,24 +52,13 @@ export default function Home() {
 
     recognition.onend = () => {
       setIsListening(false);
-      // Prevent rapid flicker by adding a small delay and checking if we still want to listen
-      if (recognitionRef.current) {
-        setTimeout(() => {
-          try { 
-            if (recognitionRef.current) recognitionRef.current.start(); 
-          } catch (e) { 
-            console.error("Auto-restart failed", e); 
-          }
-        }, 100);
-      }
+      recognitionRef.current = null;
     };
 
     recognition.onerror = (event: any) => {
       console.error("Speech Recognition Error", event.error);
-      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        recognitionRef.current = null;
-        setIsListening(false);
-      }
+      recognitionRef.current = null;
+      setIsListening(false);
     };
 
     recognitionRef.current = recognition;
@@ -271,10 +261,10 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-3xl flex flex-col items-center z-10">
-        {!isListening && !activeIntent && (
+        {!isListening && (
           <button 
             onClick={initRecognition}
-            className="group relative flex items-center justify-center"
+            className="group relative flex items-center justify-center mb-12"
           >
             <div className="absolute inset-0 bg-blue-400/20 rounded-full blur-2xl group-hover:bg-blue-400/40 transition-all duration-1000 animate-pulse" />
             <div className="relative w-32 h-32 bg-white/80 backdrop-blur-xl rounded-full border border-white shadow-2xl flex items-center justify-center transition-transform duration-700 hover:scale-110 active:scale-95">

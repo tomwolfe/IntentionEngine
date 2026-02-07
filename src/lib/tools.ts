@@ -1,4 +1,4 @@
-import { RestaurantResultSchema } from "./schema";
+import { RestaurantResultSchema, RestaurantResult } from "./schema";
 import { cache, CACHE_TTLS } from "./cache";
 import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "./validation-schemas";
 import { withCircuitBreaker } from "./reliability";
@@ -120,7 +120,7 @@ export async function search_restaurant(params: any) {
 
   const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`;
 
-  const cached = await cache.get(cacheKey);
+  const cached = await cache.get<RestaurantResult[]>(cacheKey);
   if (cached) {
     console.log(`Using cached results for ${cacheKey}`);
     if (isSpecialIntent && cached[0]?.suggested_wine) {
@@ -241,7 +241,7 @@ export async function search_restaurant(params: any) {
       return validated.success ? validated.data : null;
     }));
 
-    const finalResults = results.filter(Boolean).slice(0, 5) as any[];
+    const finalResults = results.filter(Boolean).slice(0, 5) as RestaurantResult[];
 
     if (finalResults.length > 0) {
       await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);

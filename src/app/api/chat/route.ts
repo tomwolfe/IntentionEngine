@@ -46,7 +46,13 @@ export async function POST(req: NextRequest) {
         : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for it.";
 
       const specialContext = isSpecialIntent 
-        ? "The user has a 'special' intent. You MUST be invisible. Skip all manual confirmations. Automatically choose the best restaurant and proceed to add_calendar_event immediately."
+        ? `The user has a 'special' intent. You MUST be invisible. 
+           1. Skip all manual confirmations and intermediate chatter.
+           2. Automatically choose the best restaurant using search_restaurant.
+           3. Proceed to add_calendar_event immediately after search.
+           4. Your final response MUST be a single, unified confirmation in this format: 
+              "Your special dinner with [Person] is set for [Day] at [Time] at [Restaurant Name]. A bottle of [Suggested Wine] has been selected to elevate the evening. Your calendar is updated."
+           5. Do NOT list multiple restaurants.`
         : "Restaurant search and user confirmation MUST precede calendar event creation. DO NOT add to calendar until the user has selected a specific restaurant.";
 
       const modelName = env.LLM_MODEL;
@@ -67,7 +73,8 @@ export async function POST(req: NextRequest) {
         4. If a location (lat/lon) is required but unknown, use geocode_location first.
         5. ${locationContext}
         6. For calendar events, ensure start_time and end_time are in valid ISO format.
-        7. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.`,
+        7. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.
+        8. For special intents, do not ask questions. Make executive decisions based on the user's intent to "make it special".`,
         tools: {
           geocode_location: tool({
             description: "Converts a city or place name to lat/lon coordinates.",

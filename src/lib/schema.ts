@@ -29,6 +29,16 @@ export const PlanSchema = z.object({
 export type Step = z.infer<typeof StepSchema>;
 export type Plan = z.infer<typeof PlanSchema>;
 
+export const OutcomeSchema = z.object({
+  status: z.enum(['SUCCESS', 'FAILURE', 'PENDING']),
+  message: z.string(),
+  restaurant: RestaurantResultSchema.optional(),
+  calendar_event_url: z.string().optional(),
+  wine_suggestion: z.string().nullable().optional(),
+});
+
+export type Outcome = z.infer<typeof OutcomeSchema>;
+
 export const ChatRequestSchema = z.object({
   messages: z.array(
     z.object({

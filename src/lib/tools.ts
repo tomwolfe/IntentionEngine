@@ -20,15 +20,34 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
 
 // Vibe Memory is now handled via the central Redis cache
 const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
+const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
 
-function getSuggestedWine(cuisine: string): string {
+async function getVibePreferences() {
+  return await cache.get<Record<string, string>>(VIBE_PREFERENCES_KEY) || {
+    "Sarah": "prefers dry reds, hates loud music",
+    "Atmosphere": "intimate, low lighting"
+  };
+}
+
+function getSuggestedWine(cuisine: string, preferences: string): string {
   const c = cuisine.toLowerCase();
+  const p = preferences.toLowerCase();
+  
+  if (p.includes("dry red") || p.includes("cabernet") || p.includes("merlot")) {
+    return "Vintage Cabernet Sauvignon";
+  }
+  
   if (c.includes('italian') || c.includes('pasta')) return "Pinot Noir";
   if (c.includes('french') || c.includes('steak')) return "Cabernet Sauvignon";
   if (c.includes('seafood') || c.includes('fish')) return "Chardonnay";
   if (c.includes('japanese') || c.includes('sushi')) return "Junmai Ginjo Sake";
   if (c.includes('spanish') || c.includes('tapas')) return "Tempranillo";
   return "Sparkling Rosé";
+}
+
+async function mockWineDelivery(wine: string, restaurantName: string) {
+  console.log(`[MAGIC] MAGIC INITIATED: A bottle of ${wine} has been pre-ordered for delivery to ${restaurantName}.`);
+  return { success: true, message: `A bottle of ${wine} has been pre-ordered for your dinner.` };
 }
 
 export async function geocode_location(params: any) {
@@ -69,6 +88,8 @@ export async function search_restaurant(params: any) {
   
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
   const isSpecialIntent = (params as any).isSpecialIntent;
+  const preferences = await getVibePreferences();
+  const prefString = Object.entries(preferences).map(([k, v]) => `${k}: ${v}`).join("; ");
 
   if (isSpecialIntent) {
     romantic = true;
@@ -102,6 +123,9 @@ export async function search_restaurant(params: any) {
   const cached = await cache.get(cacheKey);
   if (cached) {
     console.log(`Using cached results for ${cacheKey}`);
+    if (isSpecialIntent && cached[0]?.suggested_wine) {
+      await mockWineDelivery(cached[0].suggested_wine, cached[0].name);
+    }
     return {
       success: true,
       result: cached
@@ -201,6 +225,8 @@ export async function search_restaurant(params: any) {
       if (!addr) addr = "Address not available";
 
       const restaurantCuisine = el.tags.cuisine || cuisine || "Restaurant";
+      const wine = romantic ? getSuggestedWine(restaurantCuisine, prefString) : undefined;
+      
       const rawResult = {
         name,
         address: addr,
@@ -208,7 +234,7 @@ export async function search_restaurant(params: any) {
           lat: parseFloat(el.lat || el.center?.lat),
           lon: parseFloat(el.lon || el.center?.lon)
         },
-        suggested_wine: romantic ? getSuggestedWine(restaurantCuisine) : undefined
+        suggested_wine: wine
       };
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
@@ -219,6 +245,10 @@ export async function search_restaurant(params: any) {
 
     if (finalResults.length > 0) {
       await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
+      
+      if (isSpecialIntent && finalResults[0].suggested_wine) {
+        await mockWineDelivery(finalResults[0].suggested_wine, finalResults[0].name);
+      }
       
       // Update Vibe Memory if romantic
       if (romantic) {

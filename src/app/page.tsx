@@ -5,7 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
-import { Calendar } from "lucide-react";
+import { Calendar, Mic, MicOff } from "lucide-react";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -28,6 +28,7 @@ export default function Home() {
   const [loadProgress, setLoadProgress] = useState("");
   const [localResponse, setLocalResponse] = useState("");
   const [activeIntent, setActiveIntent] = useState<any>(null);
+  const [isListening, setIsListening] = useState(false);
 
   useEffect(() => {
     // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
@@ -57,6 +58,27 @@ export default function Home() {
   });
 
   const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse);
+
+  const startListening = () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert("Speech recognition not supported in this browser.");
+      return;
+    }
+
+    const recognition = new (window as any).webkitSpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+    };
+
+    recognition.start();
+  };
 
   const createAuditLog = async (intent: string, outcome: any) => {
     try {
@@ -113,6 +135,7 @@ export default function Home() {
     // For special intent, we wait until everything is done or show a unified card
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
+    const textPart = lastAssistantMessage.parts.find(p => p.type === 'text');
 
     if (activeIntent?.isSpecialIntent) {
       if (searchPart && calendarPart) {
@@ -126,7 +149,7 @@ export default function Home() {
               <p className="text-slate-500 text-lg mb-6">{restaurant.address}</p>
               {restaurant.suggested_wine && (
                 <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                  <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening.”</p>
+                  <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening. A bottle has been pre-ordered.”</p>
                 </div>
               )}
               <a 
@@ -137,10 +160,15 @@ export default function Home() {
                 Download (.ics)
               </a>
             </div>
+            {textPart && <p className="text-center text-slate-400 mt-6 font-medium tracking-tight animate-pulse">{textPart.text}</p>}
           </div>
         );
       }
-      return null; // Show nothing during orchestration for special intents
+      return (
+        <div className="flex justify-center items-center py-20">
+          <div className="w-3 h-3 bg-slate-400 rounded-full animate-ping" />
+        </div>
+      );
     }
 
     return (
@@ -195,30 +223,47 @@ export default function Home() {
   }, [messages, localResponse, userLocation, sendMessage, activeIntent]);
 
   const isActuallySubmitted = activeIntent !== null;
+  const showUnifiedOutcome = activeIntent?.isSpecialIntent && outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
 
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
-      {!isActuallySubmitted ? (
+      {!showUnifiedOutcome ? (
         <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          <form onSubmit={onFormSubmit}>
+          <form onSubmit={onFormSubmit} className="relative group">
             <input
               type="text"
               autoFocus
-              className="w-full bg-transparent border-b border-slate-200 py-6 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
+              className="w-full bg-transparent border-b border-slate-200 py-6 pr-16 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
               placeholder="What's your intention?"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || isListening}
             />
+            <div className="absolute right-0 bottom-6 flex items-center gap-4">
+              {isLoading && activeIntent?.isSpecialIntent && (
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+              )}
+              <button
+                type="button"
+                onClick={startListening}
+                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
+                disabled={isLoading}
+              >
+                {isListening ? <MicOff size={32} /> : <Mic size={32} />}
+              </button>
+            </div>
           </form>
+          {activeIntent && !activeIntent.isSpecialIntent && outcomeContent && (
+             <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
+                {outcomeContent}
+             </div>
+          )}
         </div>
       ) : (
         <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-700">
-          {outcomeContent && (
-            <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
-               {outcomeContent}
-            </div>
-          )}
+          <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
+             {outcomeContent}
+          </div>
         </div>
       )}
     </main>

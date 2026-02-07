@@ -5,6 +5,7 @@ import { createAuditLog, updateAuditLog } from "@/lib/audit";
 import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
 import { IntentRequestSchema } from "@/lib/validation-schemas";
+import { getPersonalPreferences } from "@/lib/vibe-memory";
 
 export const runtime = "edge";
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { intent, user_location } = validatedBody.data;
+      const { intent, user_location, user_id } = validatedBody.data;
 
       // Hybrid Regex-LLM Approach: Handle simple intents locally
       const classification = classifyIntent(intent);
@@ -39,7 +40,8 @@ export async function POST(req: NextRequest) {
       const auditLog = await createAuditLog(intent);
 
       try {
-        const plan = await generatePlan(intent, user_location);
+        const preferences = await getPersonalPreferences(user_id);
+        const plan = await generatePlan(intent, user_location, preferences);
         
         // Secondary validation just in case
         PlanSchema.parse(plan);

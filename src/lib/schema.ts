@@ -24,6 +24,7 @@ export const PlanSchema = z.object({
   constraints: z.array(z.string()),
   ordered_steps: z.array(StepSchema),
   summary: z.string(),
+  is_special: z.boolean().optional(),
 });
 
 export type Step = z.infer<typeof StepSchema>;

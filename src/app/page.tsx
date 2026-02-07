@@ -129,6 +129,9 @@ export default function Home() {
     }
   };
 
+  const [intentionStatus, setIntentionStatus] = useState<string | null>(null);
+  const [finalOutcome, setFinalOutcome] = useState<any>(null);
+
   const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -137,6 +140,34 @@ export default function Home() {
     const classification = classifyIntent(currentInput);
     setActiveIntent(classification);
     setInput("");
+    
+    if (classification.isSpecialIntent) {
+      setIntentionStatus("Curating...");
+      try {
+        // Use the new Jobsian flow for special intents
+        const intentRes = await fetch("/api/intent", {
+          method: "POST",
+          body: JSON.stringify({ intent: currentInput, user_location: userLocation, user_id: "sarah_id" }),
+          headers: { "Content-Type": "application/json" }
+        });
+        const { plan, audit_log_id } = await intentRes.json();
+        
+        setIntentionStatus("Executing...");
+        const execRes = await fetch("/api/execute", {
+          method: "POST",
+          body: JSON.stringify({ audit_log_id, step_index: 0, user_confirmed: true }),
+          headers: { "Content-Type": "application/json" }
+        });
+        const { log } = await execRes.json();
+        
+        setFinalOutcome(log.final_outcome);
+        setIntentionStatus(null);
+      } catch (err) {
+        console.error("Special execution failed", err);
+        setIntentionStatus("Failed to realize intention.");
+      }
+      return;
+    }
 
     if (classification.type === "SIMPLE") {
       setLocalResponse("");
@@ -159,6 +190,41 @@ export default function Home() {
   };
 
   const outcomeContent = useMemo(() => {
+    if (intentionStatus) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 animate-pulse">
+          <div className="text-2xl font-light text-slate-400 italic">“{intentionStatus}”</div>
+        </div>
+      );
+    }
+
+    if (finalOutcome) {
+      const { restaurant, calendar_event_url, wine_suggestion } = finalOutcome;
+      return (
+        <div className="space-y-6 animate-in fade-in duration-1000">
+          <div className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm">
+            <h3 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">{restaurant?.name || "Reservation Confirmed"}</h3>
+            <p className="text-slate-500 text-lg mb-6">{restaurant?.address}</p>
+            {wine_suggestion && (
+              <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
+                <p className="text-xl text-amber-800 font-serif italic">“Pair with {wine_suggestion} to elevate the evening. A bottle has been pre-ordered.”</p>
+              </div>
+            )}
+            {calendar_event_url && (
+              <a 
+                href={calendar_event_url}
+                className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
+              >
+                <Calendar size={24} />
+                Add to Calendar
+              </a>
+            )}
+          </div>
+          <p className="text-center text-slate-400 mt-6 font-medium tracking-tight">Your intention has been realized.</p>
+        </div>
+      );
+    }
+
     if (activeIntent?.type === "SIMPLE") {
       if (localResponse) {
         return <p className="text-xl font-light text-slate-800 leading-relaxed">{localResponse}</p>;
@@ -272,50 +338,118 @@ export default function Home() {
     );
   }, [messages, localResponse, userLocation, sendMessage, activeIntent]);
 
-  const isActuallySubmitted = activeIntent !== null;
-  const showUnifiedOutcome = activeIntent?.isSpecialIntent && outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
+    const isActuallySubmitted = activeIntent !== null || intentionStatus !== null;
 
-  return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
-      {!showUnifiedOutcome ? (
-        <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          <form onSubmit={onFormSubmit} className="relative group">
-            <input
-              type="text"
-              autoFocus
-              className="w-full bg-transparent border-b border-slate-200 py-6 pr-16 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
-              placeholder="What's your intention?"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading || isListening}
-            />
-            <div className="absolute right-0 bottom-6 flex items-center gap-4">
-              {isLoading && activeIntent?.isSpecialIntent && (
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-              )}
-              <button
-                type="button"
-                onClick={startListening}
-                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
-                disabled={isLoading}
-              >
-                {isListening ? <MicOff size={32} /> : <Mic size={32} />}
-              </button>
-            </div>
-          </form>
-          {activeIntent && !activeIntent.isSpecialIntent && outcomeContent && (
-             <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
-                {outcomeContent}
-             </div>
-          )}
-        </div>
-      ) : (
-        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-700">
-          <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
-             {outcomeContent}
+    const showUnifiedOutcome = (activeIntent?.isSpecialIntent || finalOutcome) && outcomeContent;
+
+  
+
+    return (
+
+      <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
+
+        {!showUnifiedOutcome ? (
+
+          <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
+
+            <form onSubmit={onFormSubmit} className="relative group">
+
+              <input
+
+                type="text"
+
+                autoFocus
+
+                className="w-full bg-transparent border-b border-slate-200 py-6 pr-16 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
+
+                placeholder="What's your intention?"
+
+                value={input}
+
+                onChange={(e) => setInput(e.target.value)}
+
+                disabled={isLoading || isListening || intentionStatus !== null}
+
+              />
+
+              <div className="absolute right-0 bottom-6 flex items-center gap-4">
+
+                {(isLoading || intentionStatus) && (
+
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+
+                )}
+
+                <button
+
+                  type="button"
+
+                  onClick={startListening}
+
+                  className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
+
+                  disabled={isLoading || intentionStatus !== null}
+
+                >
+
+                  {isListening ? <MicOff size={32} /> : <Mic size={32} />}
+
+                </button>
+
+              </div>
+
+            </form>
+
+            {activeIntent && !activeIntent.isSpecialIntent && outcomeContent && (
+
+               <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
+
+                  {outcomeContent}
+
+               </div>
+
+            )}
+
           </div>
-        </div>
-      )}
-    </main>
-  );
-}
+
+        ) : (
+
+          <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-1000">
+
+            <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
+
+               {outcomeContent}
+
+            </div>
+
+            <button 
+
+              onClick={() => {
+
+                setActiveIntent(null);
+
+                setFinalOutcome(null);
+
+                setIntentionStatus(null);
+
+              }}
+
+              className="mt-8 mx-auto block text-slate-400 hover:text-slate-600 font-medium transition-colors"
+
+            >
+
+              New Intention
+
+            </button>
+
+          </div>
+
+        )}
+
+      </main>
+
+    );
+
+  }
+
+  

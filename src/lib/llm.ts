@@ -1,7 +1,11 @@
 import { Plan, PlanSchema } from "./schema";
 import { env } from "./config";
 
-export async function generatePlan(intent: string, userLocation?: { lat: number; lng: number } | null): Promise<Plan> {
+export async function generatePlan(
+  intent: string, 
+  userLocation?: { lat: number; lng: number } | null,
+  preferences?: Record<string, any> | null
+): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
@@ -9,6 +13,10 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
   const locationContext = userLocation 
     ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
     : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for confirmation or use a sensible default like London (51.5074, -0.1278).";
+
+  const preferencesContext = preferences 
+    ? `\nPersonal Preferences (PRIORITIZE THESE):\n${JSON.stringify(preferences, null, 2)}`
+    : "";
 
   if (!apiKey) {
     // For demonstration purposes if no API key is provided, we return a mock plan
@@ -57,11 +65,19 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
                 "description": "string"
               }
             ],
-            "summary": "string"
+            "summary": "string",
+            "is_special": boolean
           }
 
           Context:
           ${locationContext}
+          ${preferencesContext}
+
+          Special Intents:
+          If the user says "make it special", "surprise me", or uses romantic language:
+          1. Set "is_special": true.
+          2. All "requires_confirmation" for steps should be FALSE (autonomous).
+          3. Chaining: Search for a restaurant, then IMMEDIATELY add to calendar.
 
           Available tools:
           - geocode_location(location): Converts a city or place name to lat/lon coordinates.

@@ -6,6 +6,7 @@ import { withReliability } from "@/lib/reliability";
 import { ChatRequestSchema } from "@/lib/schema";
 import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "@/lib/validation-schemas";
 import { NextRequest, NextResponse } from "next/server";
+import { getPersonalPreferences } from "@/lib/vibe-memory";
 
 export const runtime = "edge";
 export const maxDuration = 30;
@@ -26,8 +27,14 @@ export async function POST(req: NextRequest) {
       }
 
       const { messages, userLocation, isSpecialIntent } = validatedBody.data;
+      const user_id = "sarah_id"; // Default for demo
+      const preferences = await getPersonalPreferences(user_id);
 
       console.log(`Received chat request with ${messages?.length || 0} messages. Special Intent: ${isSpecialIntent}`);
+
+      const preferencesContext = preferences 
+        ? `\nPersonal Preferences (PRIORITIZE THESE):\n${JSON.stringify(preferences, null, 2)}`
+        : "";
 
       if (messages.length === 0) {
         return NextResponse.json({ error: "No messages provided" }, { status: 400 });
@@ -72,9 +79,10 @@ export async function POST(req: NextRequest) {
            - Set the 'romantic' parameter to true when searching.
         4. If a location (lat/lon) is required but unknown, use geocode_location first.
         5. ${locationContext}
-        6. For calendar events, ensure start_time and end_time are in valid ISO format.
-        7. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.
-        8. For special intents, do not ask questions. Make executive decisions based on the user's intent to "make it special".`,
+        6. ${preferencesContext}
+        7. For calendar events, ensure start_time and end_time are in valid ISO format.
+        8. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.
+        9. For special intents, do not ask questions. Make executive decisions based on the user's intent to "make it special".`,
         tools: {
           geocode_location: tool({
             description: "Converts a city or place name to lat/lon coordinates.",

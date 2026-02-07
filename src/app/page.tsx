@@ -128,7 +128,7 @@ export default function Home() {
           }
           if (isToolUIPart(part)) {
             const toolName = getToolName(part);
-            if (part.state === 'call') {
+            if (part.state === 'input-available' || part.state === 'input-streaming') {
               return (
                 <p key={i} className="text-lg text-slate-400 italic font-light animate-in fade-in duration-300">
                   {toolName === 'search_restaurant' ? 'Finding the perfect table...' : 

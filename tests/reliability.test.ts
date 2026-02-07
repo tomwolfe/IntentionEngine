@@ -36,7 +36,7 @@ describe('Restaurant Search Logic', () => {
     
     expect(result.success).toBe(true);
     expect(result.result).toHaveLength(1);
-    expect(result.result[0].name).toBe('Le Bistro');
+    expect((result.result as any)[0].name).toBe('Le Bistro');
   });
 
   it('should handle romantic sorting and filtering', async () => {
@@ -56,9 +56,9 @@ describe('Restaurant Search Logic', () => {
     const result = await search_restaurant({ lat: 45, lon: -73, romantic: true });
     expect(result.success).toBe(true);
     // Pizza should be filtered out
-    expect(result.result.map((r: any) => r.name)).not.toContain('Fast Pizza');
+    expect((result.result as any).map((r: any) => r.name)).not.toContain('Fast Pizza');
     // Romantic Italian should be first
-    expect(result.result[0].name).toBe('Romantic Italian');
+    expect((result.result as any)[0].name).toBe('Romantic Italian');
   });
 
   it('should handle cuisine sorting', async () => {
@@ -77,7 +77,7 @@ describe('Restaurant Search Logic', () => {
 
     const result = await search_restaurant({ lat: 45, lon: -73, cuisine: 'sushi' });
     expect(result.success).toBe(true);
-    expect(result.result[0].name).toBe('Sushi Master');
+    expect((result.result as any)[0].name).toBe('Sushi Master');
   });
 
   it('should handle geocoding fallback in search_restaurant', async () => {

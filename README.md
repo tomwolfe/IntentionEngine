@@ -74,7 +74,6 @@ Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 | **Date Parsing** | [chrono-node](https://github.com/wanasit/chrono) | Parses natural language dates ("tomorrow at 7pm"). |
 
 ## 📁 Project Structure
-
 ```
 intentionengine/
 ├── .env.example                 # Environment variables template
@@ -124,12 +123,11 @@ intentionengine/
 │       └── test_routing.py      # Python-based routing logic tests (legacy)
 │
 └── tests/                       # Legacy test files (can be removed)
-├── test_geolocation_propagation.py
-└── test_hybrid_routing.py
+    ├── test_geolocation_propagation.py
+    └── test_hybrid_routing.py
 ```
 
 ## ⚙️ Setup & Installation
-
 ### Prerequisites
 *   Node.js (v18 or higher)
 *   npm or yarn

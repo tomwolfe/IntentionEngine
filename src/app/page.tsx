@@ -76,8 +76,8 @@ export default function Home() {
           if (searchPart && calendarPart) {
             const restaurant = (searchPart as any).output.result[0];
             if (restaurant) {
-              calendarPart.args = {
-                ...calendarPart.args,
+              calendarPart.input = {
+                ...calendarPart.input,
                 restaurant_name: restaurant.name,
                 restaurant_address: restaurant.address,
                 location: restaurant.address
@@ -144,11 +144,11 @@ export default function Home() {
         const { result } = await executeTool(id, i);
         
         toolResults.push({
-          type: "tool-invocation",
+          type: "dynamic-tool",
           toolName: step.tool_name,
           toolCallId: `call_${id}_${i}`,
           state: "output-available",
-          args: step.parameters,
+          input: step.parameters,
           output: result
         });
       }
@@ -159,8 +159,10 @@ export default function Home() {
         {
           id: `automated_${id}`,
           role: "assistant",
-          content: plan.summary,
-          parts: toolResults
+          parts: [
+            { type: "text", text: plan.summary },
+            ...toolResults
+          ]
         }
       ]);
       

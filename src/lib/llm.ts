@@ -4,7 +4,7 @@ import { env } from "./config";
 export async function generatePlan(
   intent: string, 
   userLocation?: { lat: number; lng: number } | null,
-  vibeMemory?: string | null
+  vibeMemory?: string[] | null
 ): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
@@ -14,8 +14,8 @@ export async function generatePlan(
     ? `The user's current location is latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates as the default for all searches unless another location is explicitly specified.`
     : "The user's location is unknown. Only if they don't specify a location, default to London (51.5074, -0.1278).";
 
-  const vibeContext = vibeMemory 
-    ? `The user has previously enjoyed these cuisines: ${vibeMemory}. Suggest a specific wine pairing in the event description that complements these tastes.`
+  const vibeContext = vibeMemory && vibeMemory.length > 0
+    ? `The user has previously enjoyed these cuisines: ${vibeMemory.join(", ")}. Suggest a specific wine pairing in the event description that complements these tastes.`
     : "";
 
   if (!apiKey) {

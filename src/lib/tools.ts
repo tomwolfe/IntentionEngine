@@ -260,19 +260,16 @@ export async function search_restaurant(params: any) {
         await mockWineDelivery(finalResults[0].suggested_wine, finalResults[0].name);
       }
       
-      // Update Vibe Memory if romantic or special intent
-      if (romantic || isSpecialIntent) {
-        const firstRestaurant = finalResults[0];
-        // We need to find the cuisine for the first result. 
-        // Since it's not in the schema, we'll try to get it from the elements array which corresponds to finalResults.
-        // Or if finalResults was from cache, we might not have elements.
-        const topCuisine = elements?.[0]?.tags?.cuisine || cuisine;
-        
-        if (topCuisine && finalResults.length > 0) {
-          const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
-          const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
-          await cache.set(VIBE_MEMORY_KEY, newHistory, 86400 * 30); // 30 days
-        }
+      // Update Vibe Memory after EVERY successful restaurant search
+      // Extract cuisine from the top result or fall back to the search cuisine parameter
+      const topCuisine = elements?.[0]?.tags?.cuisine || cuisine;
+      
+      if (topCuisine) {
+        const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
+        // Add new cuisine to front, remove duplicates, cap at 3
+        const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
+        await cache.set(VIBE_MEMORY_KEY, newHistory, 86400 * 30); // 30 days TTL
+        console.log(`Vibe Memory updated: ${JSON.stringify(newHistory)}`);
       }
     }
 

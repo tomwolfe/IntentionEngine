@@ -4,26 +4,26 @@ import { AuditOutcomeSchema } from '../src/lib/audit';
 
 describe('Intention Engine Integration Flow', () => {
   describe('Intent Classification', () => {
-    it('should classify simple intents as SIMPLE', () => {
-      const result = classifyIntent('Hello');
+    it('should classify simple intents as SIMPLE', async () => {
+      const result = await classifyIntent('Hello');
       expect(result.type).toBe('SIMPLE');
       expect(result.confidence).toBeGreaterThanOrEqual(0.9);
     });
 
-    it('should classify search intents as TOOL_SEARCH', () => {
-      const result = classifyIntent('Find a good Italian restaurant nearby');
+    it('should classify search intents as TOOL_SEARCH', async () => {
+      const result = await classifyIntent('Find a good Italian restaurant nearby');
       expect(result.type).toBe('TOOL_SEARCH');
       expect(result.confidence).toBeGreaterThan(0.8);
     });
 
-    it('should classify calendar intents as TOOL_CALENDAR', () => {
-      const result = classifyIntent('Add a meeting to my calendar');
+    it('should classify calendar intents as TOOL_CALENDAR', async () => {
+      const result = await classifyIntent('Add a meeting to my calendar');
       expect(result.type).toBe('TOOL_CALENDAR');
       expect(result.confidence).toBeGreaterThan(0.8);
     });
 
-    it('should classify multi-intent as COMPLEX_PLAN', () => {
-      const result = classifyIntent('plan a dinner tomorrow');
+    it('should classify multi-intent as COMPLEX_PLAN', async () => {
+      const result = await classifyIntent('plan a dinner tomorrow');
       expect(result.type).toBe('COMPLEX_PLAN');
       expect(result.confidence).toBeGreaterThan(0.9);
     });
@@ -52,9 +52,9 @@ describe('Intention Engine Integration Flow', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should verify that a SIMPLE intent outcome matches the schema', () => {
+    it('should verify that a SIMPLE intent outcome matches the schema', async () => {
       // Simulating what happens in page.tsx for a SIMPLE intent
-      const classification = classifyIntent('Hello');
+      const classification = await classifyIntent('Hello');
       expect(classification.type).toBe('SIMPLE');
       
       const simulatedOutcome = {

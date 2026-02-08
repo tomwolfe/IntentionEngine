@@ -1,13 +1,43 @@
 import { IntentClassification } from "./intent-schema";
+import { cache } from "./cache";
+
+const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
+
+const VAGUE_PHRASES = [
+  'somewhere nice',
+  'something good',
+  'a place',
+  'a good spot',
+  'where to eat',
+  'somewhere good',
+  'a nice place',
+  'good restaurant',
+  'nice restaurant'
+];
 
 /**
  * Classifies the user intent using a hybrid approach:
  * 1. Keyword Score system to detect multi-intent or specific tool use
- * 2. Fallback to simple intent detection
- * 3. Default to requiring LLM refinement
+ * 2. Vibe Memory bias for vague requests
+ * 3. Fallback to simple intent detection
+ * 4. Default to requiring LLM refinement
  */
-export function classifyIntent(input: string): IntentClassification {
+export async function classifyIntent(input: string): Promise<IntentClassification> {
   const normalized = input.toLowerCase().trim().replace(/[.,!?;:]/g, '');
+
+  // Check for vague requests with Vibe Memory bias
+  const isVagueRequest = VAGUE_PHRASES.some(phrase => normalized.includes(phrase));
+  if (isVagueRequest) {
+    const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
+    if (vibeMemory && vibeMemory.length > 0) {
+      return {
+        type: "TOOL_SEARCH",
+        confidence: 0.95,
+        reason: `Vague request with strong vibe memory: ${vibeMemory[0]}`,
+        isSpecialIntent: false
+      };
+    }
+  }
 
   // High-confidence special patterns
   if (normalized.includes("airport") && /\bby\b\s+\d+/.test(normalized)) {

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       const { intent, user_location } = validatedBody.data;
 
       // 1. CLASSIFY
-      const classification = classifyIntent(intent);
+      const classification = await classifyIntent(intent);
       
       // If type === 'SIMPLE': use local-llm-engine.ts to generate response and terminate.
       // We use a confidence threshold to ensure only clear simple intents are handled locally.
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       const audit_log_id = auditLog.id;
 
       // 2. PLAN: If intent is not 'SIMPLE', generate a Plan using src/lib/llm.ts.
-      const vibeMemory = await cache.get<string>(VIBE_MEMORY_KEY);
+      const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
 
       try {
         const plan = await generatePlan(intent, user_location, vibeMemory);

@@ -11,3 +11,4 @@ export interface IntentClassification {
 }
 
 export { classifyIntent } from "./intent";
+export type { classifyIntent as classifyIntentType } from "./intent";

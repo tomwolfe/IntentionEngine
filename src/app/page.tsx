@@ -102,7 +102,7 @@ export default function Home() {
       const processIntent = async (currentInput: string) => {
         if (!currentInput.trim() || isLoading) return;
   
-        let classification = classifyIntent(currentInput);
+        let classification = await classifyIntent(currentInput);
         
         // Silent Hybrid Classification
         if (classification.confidence < 0.85) {

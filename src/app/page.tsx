@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
@@ -32,6 +32,7 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [auditLogId, setAuditLogId] = useState<string | null>(null);
   const [isExecutingChain, setIsExecutingChain] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
@@ -173,24 +174,37 @@ export default function Home() {
       };
   
       const startListening = () => {
-        if (!('webkitSpeechRecognition' in window)) {
+        if (isListening && recognitionRef.current) {
+          recognitionRef.current.stop();
+          return;
+        }
+
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
           return;
         }
   
-        const recognition = new (window as any).webkitSpeechRecognition();
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = 'en-US';
   
         recognition.onstart = () => setIsListening(true);
-        recognition.onend = () => setIsListening(false);
+        recognition.onend = () => {
+          setIsListening(false);
+          recognitionRef.current = null;
+        };
         recognition.onresult = (event: any) => {
           const transcript = event.results[0][0].transcript;
-          setInput(transcript);
           processIntent(transcript);
         };
   
-        recognition.onerror = () => setIsListening(false);
+        recognition.onerror = (event: any) => {
+          console.error("Speech recognition error:", event.error);
+          setIsListening(false);
+          recognitionRef.current = null;
+        };
   
         recognition.start();
       };

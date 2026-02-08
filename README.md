@@ -39,7 +39,7 @@ This is not merely a feature set; it is our core operating principle. Every futu
 ### 2. **Automated Tool Execution & Vibe Memory**
 Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 *   **`geocode_location`:** Converts "Paris" into precise latitude/longitude.
-*   **`search_restaurant`:** Finds nearby restaurants based on cuisine, location, and ambiance (e.g., romantic). Uses Overpass API and caches results in Upstash Redis. **Incorporates "vibe memory"** to bias suggestions based on past preferences.
+*   **`search_restaurant`:** Finds nearby restaurants based on cuisine, location, and ambiance (e.g., romantic). Uses Overpass API and caches results in Upstash Redis. **Incorporates "vibe memory"** to bias suggestions based on past preferences (e.g., "French" or "Italian").
 *   **`add_calendar_event`:** Creates a downloadable `.ics` file with the restaurant's details pre-populated, including a suggested wine pairing.
 
 ### 3. **Seamless Calendar Integration**

@@ -5,8 +5,11 @@ import { createAuditLog, updateAuditLog } from "@/lib/audit";
 import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
 import { IntentRequestSchema } from "@/lib/validation-schemas";
+import { cache } from "@/lib/cache";
 
 export const runtime = "edge";
+
+const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
 
 export async function POST(req: NextRequest) {
   return withReliability(req, async () => {
@@ -37,9 +40,10 @@ export async function POST(req: NextRequest) {
       }
 
       const auditLog = await createAuditLog(intent);
+      const vibeMemory = await cache.get<string>(VIBE_MEMORY_KEY);
 
       try {
-        const plan = await generatePlan(intent, user_location);
+        const plan = await generatePlan(intent, user_location, vibeMemory);
         
         // Secondary validation just in case
         PlanSchema.parse(plan);
@@ -51,15 +55,36 @@ export async function POST(req: NextRequest) {
           audit_log_id: auditLog.id,
         });
       } catch (error: any) {
-        console.error("Plan generation failed:", error);
+        console.error("Cloud LLM failed, triggering local fallback:", error);
+        
+        // Invisible Resilience: LocalLLMEngine fallback (simplified plan)
+        const fallbackPlan = {
+          intent_type: "dining_fallback",
+          constraints: ["Cloud LLM unavailable", "simplified search"],
+          ordered_steps: [
+            {
+              tool_name: "search_restaurant",
+              parameters: { 
+                location: "London",
+                cuisine: "any"
+              },
+              requires_confirmation: false,
+              description: "Locally generated fallback search"
+            }
+          ],
+          summary: "I'm having trouble reaching my brain, but I can still help you find a place to eat in London."
+        };
+
         await updateAuditLog(auditLog.id, { 
-          validation_error: error.message || "Unknown error during plan generation" 
+          plan: fallbackPlan,
+          validation_error: error.message || "Cloud LLM failed, using fallback" 
         });
-        return NextResponse.json({ 
-          error: "Failed to generate execution plan", 
-          details: error.message,
-          audit_log_id: auditLog.id 
-        }, { status: 500 });
+
+        return NextResponse.json({
+          plan: fallbackPlan,
+          audit_log_id: auditLog.id,
+          is_fallback: true
+        });
       }
     } catch (error: any) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });

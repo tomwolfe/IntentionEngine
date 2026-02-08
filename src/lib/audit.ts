@@ -26,7 +26,7 @@ export type AuditOutcome = z.infer<typeof AuditOutcomeSchema>;
 export interface AuditLog {
   id: string;
   timestamp: string;
-  intent: string;
+  intent_hash: string;
   plan?: Plan;
   validation_error?: string;
   steps: Array<{
@@ -73,7 +73,7 @@ export async function createAuditLog(intent: string): Promise<AuditLog> {
   const log: AuditLog = {
     id,
     timestamp: new Date().toISOString(),
-    intent,
+    intent_hash: intentHash,
     steps: [],
   };
 

@@ -46,14 +46,15 @@ export async function POST(req: NextRequest) {
         : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for it.";
 
       const specialContext = isSpecialIntent 
-        ? `The user has a 'special' intent. You MUST be invisible. 
-           1. Skip all manual confirmations and intermediate chatter.
+        ? `The user has a 'special' intent. You are an Executive Orchestrator. 
+           1. Be entirely invisible. Skip all manual confirmations and intermediate chatter.
            2. Automatically choose the best restaurant using search_restaurant.
            3. Proceed to add_calendar_event immediately after search.
-           4. Your final response MUST be a single, unified confirmation in this format: 
-              "Your special dinner with [Person] is set for [Day] at [Time] at [Restaurant Name]. A bottle of [Suggested Wine] has been selected to elevate the evening. Your calendar is updated."
-           5. Do NOT list multiple restaurants.`
-        : "Restaurant search and user confirmation MUST precede calendar event creation. DO NOT add to calendar until the user has selected a specific restaurant.";
+           4. Assume all events last 2 hours.
+           5. If no location is specified, default to London.
+           6. Your final response MUST be a single, unified confirmation.
+           7. Do NOT list multiple restaurants.`
+        : "Restaurant search and user confirmation MUST precede calendar event creation unless it's a special intent.";
 
       const modelName = env.LLM_MODEL;
       console.log(`Using model: ${modelName} with base URL: ${env.LLM_BASE_URL}`);
@@ -61,20 +62,20 @@ export async function POST(req: NextRequest) {
       const result = streamText({
         model: openai.chat(modelName),
         messages: coreMessages,
-        system: `You are an Intention Engine, a specialized assistant for planning and execution.
+        system: `You are an Executive Orchestrator. Convert user intent into action.
         
         CRITICAL RULES:
         1. ${specialContext}
-        2. Always assume a 2-hour duration for dinner events unless specified otherwise.
-        3. For romantic dinner requests (or if special intent is flagged):
+        2. Assume all events last 2 hours.
+        3. If no location is provided, default to London.
+        4. If 'isSpecialIntent' is true, do not ask questions; make executive tool choices.
+        5. For romantic dinner requests:
            - Prioritize 'romantic' atmosphere in search and descriptions.
-           - NEVER suggest pizza, Mexican, or fast food cuisine.
-           - Set the 'romantic' parameter to true when searching.
-        4. If a location (lat/lon) is required but unknown, use geocode_location first.
-        5. ${locationContext}
-        6. For calendar events, ensure start_time and end_time are in valid ISO format.
-        7. When adding a calendar event for a restaurant, you MUST include 'restaurant_name' and 'restaurant_address' parameters.
-        8. For special intents, do not ask questions. Make executive decisions based on the user's intent to "make it special".`,
+           - NEVER suggest pizza, Mexican, or fast food.
+           - Set 'romantic' parameter to true.
+        6. ${locationContext}
+        7. For calendar events, include 'restaurant_name' and 'restaurant_address' in parameters.
+        8. Return ONLY the final confirmation when complete.`,
         tools: {
           geocode_location: tool({
             description: "Converts a city or place name to lat/lon coordinates.",

@@ -80,9 +80,10 @@ describe('API Endpoints', () => {
       body: JSON.stringify({ intent: 'Fail' })
     });
     const res = await intentPOST(req);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.error).toBe('Failed to generate execution plan');
+    expect(data.plan.intent_type).toBe('dining_fallback');
+    expect(data.is_fallback).toBe(true);
   });
 
   it('POST /api/intent should handle invalid request', async () => {

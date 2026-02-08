@@ -116,7 +116,8 @@ describe('Audit Log System', () => {
   it('should create and update audit logs', async () => {
     const log = await createAuditLog('I want food');
     expect(log.id).toBeDefined();
-    expect(log.intent).toBe('I want food');
+    expect(log.intent_hash).toBeDefined();
+    expect((log as any).intent).toBeUndefined();
 
     await updateAuditLog(log.id, { final_outcome: 'Completed' });
     const updated = await getAuditLog(log.id);

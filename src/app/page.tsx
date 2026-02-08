@@ -134,11 +134,41 @@ export default function Home() {
     if (!input.trim() || isLoading) return;
 
     const currentInput = input.trim();
-    const classification = classifyIntent(currentInput);
-    setActiveIntent(classification);
+    let classification = classifyIntent(currentInput);
+    
+    // Silent Hybrid Classification
+    if (classification.confidence < 0.85) {
+      setActiveIntent({ type: "THINKING", isSpecialIntent: true }); // Show "Thinking..." state
+      try {
+        const engine = await localProvider.getEngine(() => {});
+        await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+        const localClassifyPrompt = `Classify this intent: "${currentInput}". 
+        Return ONLY a JSON object: {"type": "COMPLEX_PLAN" | "TOOL_SEARCH" | "TOOL_CALENDAR" | "SIMPLE", "isSpecialIntent": boolean}`;
+        const response = await engine.generate(localClassifyPrompt);
+        const match = response.match(/\{.*\}/s);
+        if (match) {
+          const localClass = JSON.parse(match[0]);
+          classification = {
+            ...classification,
+            type: localClass.type,
+            isSpecialIntent: localClass.isSpecialIntent,
+            confidence: 0.95
+          };
+        }
+      } catch (err) {
+        console.warn("Local re-classification failed", err);
+      }
+    }
+
+    const finalClassification = {
+      ...classification,
+      isSpecialIntent: classification.isSpecialIntent || classification.type === "COMPLEX_PLAN"
+    };
+
+    setActiveIntent(finalClassification);
     setInput("");
 
-    if (classification.type === "SIMPLE") {
+    if (finalClassification.type === "SIMPLE") {
       setLocalResponse("");
       try {
         const engine = await localProvider.getEngine(setLoadProgress);
@@ -151,10 +181,10 @@ export default function Home() {
         await createAuditLog(currentInput, { status: "SUCCESS", message: response });
       } catch (err: any) {
         console.error("Local failed", err);
-        await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
+        await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
       }
     } else {
-      await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: classification.isSpecialIntent } });
+      await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
     }
   };
 
@@ -169,39 +199,41 @@ export default function Home() {
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistantMessage) return null;
 
-    // For special intent, we wait until everything is done or show a unified card
+    // Search for search and calendar results
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
-    const textPart = lastAssistantMessage.parts.find(p => p.type === 'text');
+    
+    // In v2.0, we only show the final card when everything is ready OR the simplified plan
+    const isComplete = calendarPart && calendarPart.state === 'output-available';
+    const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
 
-    if (activeIntent?.isSpecialIntent) {
-      if (searchPart && calendarPart) {
-        const restaurant = (searchPart as any).output.result[0];
-        const calendarResult = (calendarPart as any).output.result;
-        
-        // Data flow fix: ensure the download URL uses the actual restaurant details found
-        let downloadUrl = calendarResult.download_url;
-        if (restaurant && downloadUrl) {
-          try {
-            const url = new URL(downloadUrl, window.location.origin);
-            url.searchParams.set('location', restaurant.address);
-            url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
-            downloadUrl = url.pathname + url.search;
-          } catch (e) {
-            console.warn("Failed to repair download URL", e);
-          }
+    if (isComplete || isSimplified) {
+      const restaurant = (searchPart as any)?.output?.result?.[0] || { name: "Selected Location", address: "Confirmed" };
+      const calendarResult = (calendarPart as any)?.output?.result;
+      
+      let downloadUrl = calendarResult?.download_url;
+      if (restaurant && downloadUrl) {
+        try {
+          const url = new URL(downloadUrl, window.location.origin);
+          url.searchParams.set('location', restaurant.address);
+          url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
+          downloadUrl = url.pathname + url.search;
+        } catch (e) {
+          console.warn("Failed to repair download URL", e);
         }
+      }
 
-        return (
-          <div className="space-y-4 pt-4">
-            <div className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
-              <h3 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">{restaurant.name}</h3>
-              <p className="text-slate-500 text-lg mb-6">{restaurant.address}</p>
-              {restaurant.suggested_wine && (
-                <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                  <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening. A bottle has been pre-ordered.”</p>
-                </div>
-              )}
+      return (
+        <div className="space-y-4 pt-4">
+          <div className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
+            <h3 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">{restaurant.name}</h3>
+            <p className="text-slate-500 text-lg mb-6">{restaurant.address}</p>
+            {restaurant.suggested_wine && (
+              <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
+                <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening.”</p>
+              </div>
+            )}
+            {downloadUrl && (
               <a 
                 href={downloadUrl}
                 className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
@@ -209,75 +241,27 @@ export default function Home() {
                 <Calendar size={24} />
                 Download (.ics)
               </a>
-            </div>
-            {textPart && <p className="text-center text-slate-400 mt-6 font-medium tracking-tight animate-pulse">{textPart.text}</p>}
+            )}
           </div>
-        );
-      }
-      return (
-        <div className="flex justify-center items-center py-20">
-          <div className="w-3 h-3 bg-slate-400 rounded-full animate-ping" />
         </div>
       );
     }
 
+    // Default "Thinking" state for any non-final state
     return (
-      <div className="space-y-6">
-        {lastAssistantMessage.parts.map((part, i) => {
-          if (part.type === 'text') {
-            return <p key={i} className="text-xl font-light text-slate-800 leading-relaxed">{part.text}</p>;
-          }
-          if (isToolUIPart(part) && part.state === 'output-available') {
-            const toolName = getToolName(part);
-            const output = part.output as any;
-            if (toolName === 'search_restaurant' && output.success && Array.isArray(output.result)) {
-              return (
-                <div key={i} className="space-y-4 pt-4">
-                  {output.result.slice(0, 1).map((r: any, idx: number) => (
-                    <div key={idx} className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-3xl font-bold text-slate-900 tracking-tight">{r.name}</h3>
-                        <span className="bg-blue-50 text-blue-600 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">Recommended</span>
-                      </div>
-                      <p className="text-slate-500 text-lg mb-6">{r.address}</p>
-                      {r.suggested_wine && (
-                        <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                          <p className="text-xs text-amber-900/60 font-bold uppercase tracking-widest mb-1">Vibe Tuning</p>
-                          <p className="text-xl text-amber-800 font-serif italic">“Pair with {r.suggested_wine} to elevate the evening.”</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              );
-            }
-            if (toolName === 'add_calendar_event' && output.success && output.result?.download_url) {
-              return (
-                <div key={i} className="flex flex-col items-center gap-6 p-10 bg-green-50/50 rounded-[2.5rem] border border-green-100 animate-in zoom-in-95 duration-500 mt-4">
-                  <p className="text-green-800 font-bold text-xl text-center leading-tight">Outcome achieved.<br/>Your calendar is updated.</p>
-                  <a 
-                    href={output.result.download_url}
-                    className="flex items-center gap-3 bg-green-600 text-white px-10 py-4 rounded-full font-bold text-lg hover:bg-green-700 transition-all shadow-lg shadow-green-200 active:scale-95"
-                  >
-                    <Calendar size={24} />
-                    Download (.ics)
-                  </a>
-                </div>
-              );
-            }
-          }
-          return null;
-        })}
+      <div className="flex justify-center items-center py-20">
+        <div className="w-3 h-3 bg-slate-400 rounded-full animate-ping" />
       </div>
     );
-  }, [messages, localResponse, userLocation, sendMessage, activeIntent]);
+  }, [messages, localResponse, activeIntent]);
 
   const isActuallySubmitted = activeIntent !== null;
-  const showUnifiedOutcome = activeIntent?.isSpecialIntent && outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
+  const isThinking = isLoading || activeIntent?.type === "THINKING";
+  const hasOutcome = outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
 
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
-      {!showUnifiedOutcome ? (
+      {!hasOutcome ? (
         <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
           <form onSubmit={onFormSubmit} className="relative group">
             <input
@@ -287,23 +271,23 @@ export default function Home() {
               placeholder="What's your intention?"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={isLoading || isListening}
+              disabled={isThinking || isListening}
             />
             <div className="absolute right-0 bottom-6 flex items-center gap-4">
-              {isLoading && activeIntent?.isSpecialIntent && (
+              {isThinking && (
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
               )}
               <button
                 type="button"
                 onClick={startListening}
                 className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
-                disabled={isLoading}
+                disabled={isThinking}
               >
                 {isListening ? <MicOff size={32} /> : <Mic size={32} />}
               </button>
             </div>
           </form>
-          {activeIntent && !activeIntent.isSpecialIntent && outcomeContent && (
+          {activeIntent && activeIntent.type === "SIMPLE" && outcomeContent && (
              <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
                 {outcomeContent}
              </div>

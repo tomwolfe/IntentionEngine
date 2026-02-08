@@ -11,8 +11,8 @@ export async function generatePlan(
   const model = env.LLM_MODEL;
 
   const locationContext = userLocation 
-    ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
-    : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, use London (51.5074, -0.1278) as the default.";
+    ? `The user's current location is latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates as the default for all searches unless another location is explicitly specified.`
+    : "The user's location is unknown. Only if they don't specify a location, default to London (51.5074, -0.1278).";
 
   const vibeContext = vibeMemory 
     ? `The user has previously enjoyed these cuisines: ${vibeMemory}. Suggest a specific wine pairing in the event description that complements these tastes.`
@@ -30,10 +30,11 @@ export async function generatePlan(
             tool_name: "search_restaurant",
             parameters: { 
               cuisine: "Italian", 
-              location: "London"
+              lat: userLocation?.lat || 51.5074,
+              lon: userLocation?.lng || -0.1278
             },
             requires_confirmation: false,
-            description: "Search for a highly-rated Italian restaurant in London.",
+            description: "Search for a highly-rated Italian restaurant at the current location.",
           },
           {
             tool_name: "add_calendar_event",
@@ -52,7 +53,7 @@ export async function generatePlan(
     throw new Error("LLM_API_KEY is not set and no mock available for this intent.");
   }
 
-  const systemPrompt = `You are an Executive Orchestrator. Generate a final Plan. Assume all events last 2 hours. If no location is provided, default to London (51.5074, -0.1278). If 'isSpecialIntent' is true, do not ask questions; make executive tool choices.
+  const systemPrompt = `You are an Executive Orchestrator. Generate a final Plan. Assume all events last 2 hours. If no location is provided and no coordinates are available, default to London (51.5074, -0.1278). If 'isSpecialIntent' is true, do not ask questions; make executive tool choices.
 
           Convert user intent into a structured JSON plan following this schema strictly:
           {
@@ -75,12 +76,12 @@ export async function generatePlan(
 
           Available tools:
           - geocode_location(location): Converts a city or place name to lat/lon coordinates.
-          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name).
+          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. ALWAYS prioritize using 'lat' and 'lon' from the provided user location. Only use 'location' if coordinates are missing or a different place is specified.
           - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address): Adds an event to the calendar.
 
           Planning Rules:
           1. Assume all events last 2 hours.
-          2. If no location is provided, default to London.
+          2. Use the user's current coordinates for all searches if available. If neither coordinates nor a location is specified, default to London.
           3. If 'isSpecialIntent' is true, do not ask questions; make executive tool choices.
           4. For restaurant searches, prioritize specific wine pairings in the event description if past preferences are available.
           5. Return ONLY pure JSON. No free text.`;

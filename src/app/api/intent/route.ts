@@ -65,14 +65,15 @@ export async function POST(req: NextRequest) {
             {
               tool_name: "search_restaurant",
               parameters: { 
-                location: "London",
+                lat: user_location?.lat || 51.5074,
+                lon: user_location?.lng || -0.1278,
                 cuisine: "any"
               },
               requires_confirmation: false,
               description: "Locally generated fallback search"
             }
           ],
-          summary: "I'm having trouble reaching my brain, but I can still help you find a place to eat in London."
+          summary: `I'm having trouble reaching my brain, but I can still help you find a place to eat near ${user_location ? 'your location' : 'London'}.`
         };
 
         await updateAuditLog(auditLog.id, { 

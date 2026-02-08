@@ -27,6 +27,12 @@ export async function POST(req: NextRequest) {
 
       const { messages, userLocation, isSpecialIntent } = validatedBody.data;
 
+      const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
+      const vibeHistory = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
+      const vibeContext = vibeHistory.length > 0 
+        ? `The user has previously enjoyed these cuisines: ${vibeHistory.join(', ')}. Use this to bias your restaurant choice if they are vague or if 'isSpecialIntent' is true.`
+        : "";
+
       console.log(`Received chat request with ${messages?.length || 0} messages. Special Intent: ${isSpecialIntent}`);
 
       if (messages.length === 0) {
@@ -42,7 +48,7 @@ export async function POST(req: NextRequest) {
       const coreMessages = await convertToModelMessages(messagesWithIds as any);
 
       const locationContext = userLocation 
-        ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
+        ? `The user's current location is latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates as the default for all searches unless another location is explicitly mentioned.`
         : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for it.";
 
       const specialContext = isSpecialIntent 
@@ -51,7 +57,7 @@ export async function POST(req: NextRequest) {
            2. Automatically choose the best restaurant using search_restaurant.
            3. Proceed to add_calendar_event immediately after search.
            4. Assume all events last 2 hours.
-           5. If no location is specified, default to London.
+           5. Use the user's current coordinates for search if available. If neither coordinates nor a location are provided, default to London.
            6. Your final response MUST be a single, unified confirmation.
            7. Do NOT list multiple restaurants.`
         : "Restaurant search and user confirmation MUST precede calendar event creation unless it's a special intent.";
@@ -67,15 +73,16 @@ export async function POST(req: NextRequest) {
         CRITICAL RULES:
         1. ${specialContext}
         2. Assume all events last 2 hours.
-        3. If no location is provided, default to London.
+        3. Use the user's current coordinates for all searches unless they specify a different location. Default to London only if coordinates are unavailable and no location is specified.
         4. If 'isSpecialIntent' is true, do not ask questions; make executive tool choices.
         5. For romantic dinner requests:
            - Prioritize 'romantic' atmosphere in search and descriptions.
            - NEVER suggest pizza, Mexican, or fast food.
            - Set 'romantic' parameter to true.
         6. ${locationContext}
-        7. For calendar events, include 'restaurant_name' and 'restaurant_address' in parameters.
-        8. Return ONLY the final confirmation when complete.`,
+        7. ${vibeContext}
+        8. For calendar events, include 'restaurant_name' and 'restaurant_address' in parameters.
+        9. Return ONLY the final confirmation when complete.`,
         tools: {
           geocode_location: tool({
             description: "Converts a city or place name to lat/lon coordinates.",
@@ -86,7 +93,7 @@ export async function POST(req: NextRequest) {
             },
           }),
           search_restaurant: tool({
-            description: "Search for restaurants nearby based on cuisine and location.",
+            description: "Search for restaurants nearby based on cuisine and location. ALWAYS prioritize using 'lat' and 'lon' if available.",
             inputSchema: SearchRestaurantSchema,
             execute: async (params: any) => {
               console.log("Executing search_restaurant", params);

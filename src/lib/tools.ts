@@ -1,8 +1,9 @@
 import { RestaurantResultSchema, RestaurantResult } from "./schema";
 import { cache, CACHE_TTLS } from "./cache";
-import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema } from "./validation-schemas";
+import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema, WeatherForecastSchema } from "./validation-schemas";
 import { withCircuitBreaker } from "./reliability";
 import { withRetry } from "./utils/reliability";
+import * as chrono from "chrono-node";
 
 async function fetchWithRetry(url: string, options: RequestInit, service: string): Promise<Response> {
   return await withCircuitBreaker(service, async () => {
@@ -76,6 +77,90 @@ export async function geocode_location(params: any) {
     }
     return { success: false, error: "Location not found" };
   } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+const WEATHER_CODES: Record<number, string> = {
+  0: "Clear sky",
+  1: "Mainly clear",
+  2: "Partly cloudy",
+  3: "Overcast",
+  45: "Fog",
+  48: "Depositing rime fog",
+  51: "Light drizzle",
+  53: "Moderate drizzle",
+  55: "Dense drizzle",
+  56: "Light freezing drizzle",
+  57: "Dense freezing drizzle",
+  61: "Slight rain",
+  63: "Moderate rain",
+  65: "Heavy rain",
+  66: "Light freezing rain",
+  67: "Heavy freezing rain",
+  71: "Slight snow fall",
+  73: "Moderate snow fall",
+  75: "Heavy snow fall",
+  77: "Snow grains",
+  80: "Slight rain showers",
+  81: "Moderate rain showers",
+  82: "Violent rain showers",
+  85: "Slight snow showers",
+  86: "Heavy snow showers",
+  95: "Thunderstorm",
+  96: "Thunderstorm with slight hail",
+  99: "Thunderstorm with heavy hail",
+};
+
+export async function get_weather_forecast(params: any) {
+  const validated = WeatherForecastSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: "Invalid parameters", details: validated.error.format() };
+  }
+  const { location, date } = validated.data;
+
+  console.log(`Fetching weather forecast for ${location} on ${date}...`);
+
+  try {
+    // 1. Date Parsing
+    const parsedDate = chrono.parseDate(date);
+    if (!parsedDate) {
+      return { success: false, error: `Could not parse date: ${date}` };
+    }
+    const isoDate = parsedDate.toISOString().split('T')[0];
+
+    // 2. Geocoding
+    const geo = await geocode_location({ location });
+    if (!geo.success || !geo.result) {
+      return { success: false, error: "Could not geocode location for weather" };
+    }
+    const { lat, lon } = geo.result;
+
+    // 3. Weather API Call
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&start_date=${isoDate}&end_date=${isoDate}`;
+
+    const response = await fetchWithRetry(url, {}, 'open-meteo');
+    const data = await response.json();
+
+    if (!data.daily || !data.daily.weathercode || data.daily.weathercode.length === 0) {
+      return { success: false, error: "No weather data found for the requested date" };
+    }
+
+    const weathercode = data.daily.weathercode[0];
+    const condition = WEATHER_CODES[weathercode] || "Unknown";
+    
+    return {
+      success: true,
+      result: {
+        condition,
+        temperature_high: data.daily.temperature_2m_max[0],
+        temperature_low: data.daily.temperature_2m_min[0],
+        precipitation_probability: data.daily.precipitation_probability_max[0] / 100, // as decimal
+        date: isoDate
+      }
+    };
+  } catch (error: any) {
+    console.error("Error in get_weather_forecast:", error);
     return { success: false, error: error.message };
   }
 }
@@ -291,13 +376,15 @@ export async function add_calendar_event(params: any) {
       if (!validated.success) {
         throw new Error(`Invalid parameters: ${JSON.stringify(validated.error.format())}`);
       }
-      const { title, start_time, end_time, location, restaurant_name, restaurant_address } = validated.data;
+      const { title, start_time, end_time, location, restaurant_name, restaurant_address, description: providedDescription } = validated.data;
 
       console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
       
-      const description = (restaurant_name || restaurant_address)
-        ? `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`
-        : "";
+      let description = providedDescription || "";
+      if (restaurant_name || restaurant_address) {
+        const restInfo = `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`;
+        description = description ? `${description}\n\n${restInfo}` : restInfo;
+      }
 
       const queryParams = new URLSearchParams({
         title,
@@ -322,6 +409,7 @@ export const TOOLS: Record<string, Function> = Object.freeze({
   search_restaurant,
   add_calendar_event,
   geocode_location,
+  get_weather_forecast,
 });
 
 export async function executeTool(nameOrId: string, paramsOrIndex: any) {

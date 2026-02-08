@@ -2,13 +2,59 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parseDateTime } from '@/lib/date-utils';
 import { GeocodeLocationSchema, SearchRestaurantSchema, IntentRequestSchema } from '@/lib/validation-schemas';
 import { cache } from '@/lib/cache';
-import { geocode_location, search_restaurant, add_calendar_event } from '@/lib/tools';
+import { geocode_location, search_restaurant, add_calendar_event, get_weather_forecast } from '@/lib/tools';
 import { withReliability } from '@/lib/reliability';
 import { createAuditLog, updateAuditLog, getAuditLog } from '@/lib/audit';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Mock fetch for tool tests
 global.fetch = vi.fn();
+
+describe('Weather Forecast Tool', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+  });
+
+  it('should fetch weather data correctly', async () => {
+    const mockGeocodeData = [{ lat: '48.8566', lon: '2.3522' }];
+    const mockWeatherData = {
+      daily: {
+        weathercode: [2],
+        temperature_2m_max: [22],
+        temperature_2m_min: [15],
+        precipitation_probability_max: [10],
+      }
+    };
+
+    (fetch as any)
+      .mockResolvedValueOnce({ // geocode
+        ok: true,
+        json: () => Promise.resolve(mockGeocodeData)
+      })
+      .mockResolvedValueOnce({ // open-meteo
+        ok: true,
+        json: () => Promise.resolve(mockWeatherData)
+      });
+
+    const result = await get_weather_forecast({ location: 'Paris', date: 'tomorrow' });
+    
+    expect(result.success).toBe(true);
+    expect(result.result?.condition).toBe('Partly cloudy');
+    expect(result.result?.temperature_high).toBe(22);
+    expect(result.result?.precipitation_probability).toBe(0.1);
+  });
+
+  it('should handle geocoding failure', async () => {
+    (fetch as any).mockResolvedValueOnce({ // geocode
+      ok: true,
+      json: () => Promise.resolve([])
+    });
+
+    const result = await get_weather_forecast({ location: 'UnknownPlace', date: 'tomorrow' });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Could not geocode location for weather');
+  });
+});
 
 describe('Restaurant Search Logic', () => {
   beforeEach(async () => {

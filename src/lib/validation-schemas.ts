@@ -5,6 +5,11 @@ export const GeocodeLocationSchema = z.object({
   location: z.string().min(1).max(500).trim(),
 });
 
+export const WeatherForecastSchema = z.object({
+  location: z.string().min(1).max(500).trim(),
+  date: z.string().min(1).max(100).trim(),
+});
+
 export const SearchRestaurantSchema = z.object({
   cuisine: z.string().max(100).trim().optional(),
   lat: z.number().min(-90).max(90).optional(),
@@ -22,6 +27,7 @@ export const AddCalendarEventSchema = z.object({
   location: z.string().max(500).trim().optional(),
   restaurant_name: z.string().max(200).trim().optional(),
   restaurant_address: z.string().max(500).trim().optional(),
+  description: z.string().max(1000).trim().optional(),
 });
 
 // API Request Schemas

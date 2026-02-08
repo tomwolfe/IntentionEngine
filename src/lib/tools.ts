@@ -95,12 +95,22 @@ export async function search_restaurant(params: any) {
     romantic = true;
   }
 
-  // Vibe Memory Bias: If it's a special/romantic request and cuisine isn't specified, use memory
-  if (romantic && !cuisine) {
-    const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
-    if (history.length > 0) {
-      cuisine = history[0]; // Bias towards most recent
-      console.log(`Vibe Memory Bias: Using ${cuisine} from memory`);
+  // Vibe Memory Bias: If it's a special/romantic request and cuisine is generic or missing, use memory
+  const GENERIC_CUISINES = ['dinner', 'lunch', 'breakfast', 'food', 'eat', 'restaurant', 'meal', 'any'];
+  
+  if (romantic) {
+    const isGeneric = !cuisine || GENERIC_CUISINES.includes(cuisine.toLowerCase().trim());
+    
+    if (isGeneric) {
+      const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
+      const originalCuisine = cuisine;
+      if (history.length > 0) {
+        cuisine = history[0];
+        console.log(`Vibe Memory Bias: Overriding generic '${originalCuisine || 'undefined'}' with '${cuisine}' from memory`);
+      } else {
+        cuisine = "French"; // Default romantic fallback
+        console.log(`Vibe Memory Bias: Overriding generic '${originalCuisine || 'undefined'}' with default 'French'`);
+      }
     }
   }
   

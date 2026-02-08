@@ -204,7 +204,7 @@ export default function Home() {
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
     
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
-    const isComplete = calendarPart && calendarPart.state === 'output-available';
+    const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
 
     if (isComplete || isSimplified) {

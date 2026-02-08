@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
+import { executeTool } from "@/lib/tools";
 import { Calendar, Mic, MicOff } from "lucide-react";
 
 class LocalProvider {
@@ -29,6 +30,8 @@ export default function Home() {
   const [localResponse, setLocalResponse] = useState("");
   const [activeIntent, setActiveIntent] = useState<any>(null);
   const [isListening, setIsListening] = useState(false);
+  const [auditLogId, setAuditLogId] = useState<string | null>(null);
+  const [isExecutingChain, setIsExecutingChain] = useState(false);
 
   useEffect(() => {
     // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
@@ -89,12 +92,12 @@ export default function Home() {
     };
   }, [activeIntent]);
 
-  const { messages, status, sendMessage } = useChat({
+  const { messages, status, sendMessage, setMessages } = useChat({
     transport: customTransport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
-  const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse);
+  const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse) || isExecutingChain;
 
   const startListening = () => {
     if (!('webkitSpeechRecognition' in window)) {
@@ -126,6 +129,48 @@ export default function Home() {
       });
     } catch (err) {
       console.warn("Audit log failed", err);
+    }
+  };
+
+  const runAutomatedChain = async (id: string, plan: any, originalClassification: any) => {
+    setIsExecutingChain(true);
+    setActiveIntent({ type: "THINKING", isSpecialIntent: true });
+    setLocalResponse("");
+
+    try {
+      const toolResults: any[] = [];
+      for (let i = 0; i < plan.ordered_steps.length; i++) {
+        const step = plan.ordered_steps[i];
+        const { result } = await executeTool(id, i);
+        
+        toolResults.push({
+          type: "tool-invocation",
+          toolName: step.tool_name,
+          toolCallId: `call_${id}_${i}`,
+          state: "output-available",
+          args: step.parameters,
+          output: result
+        });
+      }
+
+      // Finalize the chain by updating messages to trigger the result card
+      setMessages([
+        ...messages,
+        {
+          id: `automated_${id}`,
+          role: "assistant",
+          content: plan.summary,
+          parts: toolResults
+        }
+      ]);
+      
+      // Restore the classification state so UI logic (like isSimplified) works correctly
+      setActiveIntent({ ...originalClassification, plan });
+    } catch (err) {
+      console.error("Automated chain failed", err);
+      setActiveIntent({ type: "ERROR", isSpecialIntent: true });
+    } finally {
+      setIsExecutingChain(false);
     }
   };
 
@@ -184,7 +229,23 @@ export default function Home() {
         await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
       }
     } else {
-      await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
+      // For v2.0, we want to capture audit_log_id and plan
+      const response: any = await sendMessage(
+        { text: currentInput }, 
+        { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } }
+      );
+
+      if (response?.audit_log_id) {
+        setAuditLogId(response.audit_log_id);
+        if (response.plan) {
+          const updatedWithPlan = { ...finalClassification, plan: response.plan };
+          setActiveIntent(updatedWithPlan);
+
+          if (finalClassification.isSpecialIntent) {
+            await runAutomatedChain(response.audit_log_id, response.plan, finalClassification);
+          }
+        }
+      }
     }
   };
 
@@ -194,6 +255,14 @@ export default function Home() {
         return <p className="text-xl font-light text-slate-800 leading-relaxed">{localResponse}</p>;
       }
       return null;
+    }
+
+    if (activeIntent?.type === "ERROR") {
+      return (
+        <div className="p-8 text-center">
+          <p className="text-xl text-slate-600">I'm sorry, I couldn't complete your request. Please try again.</p>
+        </div>
+      );
     }
 
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');

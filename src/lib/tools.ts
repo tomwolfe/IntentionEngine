@@ -317,10 +317,30 @@ export const TOOLS: Record<string, Function> = Object.freeze({
   geocode_location,
 });
 
-export async function executeTool(tool_name: string, parameters: any) {
-  const tool = TOOLS[tool_name];
-  if (!tool) {
-    throw new Error(`Tool ${tool_name} not found`);
+export async function executeTool(nameOrId: string, paramsOrIndex: any) {
+  if (typeof paramsOrIndex === 'number') {
+    // Client-side execution of a plan step via the API
+    const response = await fetch("/api/execute", {
+      method: "POST",
+      body: JSON.stringify({ 
+        audit_log_id: nameOrId, 
+        step_index: paramsOrIndex,
+        user_confirmed: true 
+      }),
+      headers: { "Content-Type": "application/json" }
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `Execution of step ${paramsOrIndex} failed`);
+    }
+    return data;
   }
-  return await tool(parameters);
+
+  // Server-side execution of a specific tool
+  const tool = TOOLS[nameOrId];
+  if (!tool) {
+    throw new Error(`Tool ${nameOrId} not found`);
+  }
+  return await tool(paramsOrIndex);
 }

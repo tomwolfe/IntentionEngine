@@ -19,7 +19,7 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
 }
 
 // Vibe Memory is now handled via the central Redis cache
-const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
+export const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
 const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
 
 async function getVibePreferences() {
@@ -99,7 +99,8 @@ export async function search_restaurant(params: any) {
   const GENERIC_CUISINES = ['dinner', 'lunch', 'breakfast', 'food', 'eat', 'restaurant', 'meal', 'any'];
   
   if (romantic) {
-    const isGeneric = !cuisine || GENERIC_CUISINES.includes(cuisine.toLowerCase().trim());
+    const cuisineLower = (cuisine || '').toLowerCase().trim();
+    const isGeneric = !cuisine || GENERIC_CUISINES.includes(cuisineLower);
     
     if (isGeneric) {
       const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
@@ -254,22 +255,22 @@ export async function search_restaurant(params: any) {
     const finalResults = results.filter(Boolean).slice(0, 5) as RestaurantResult[];
 
     if (finalResults.length > 0) {
-      await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
-      
-      if (isSpecialIntent && finalResults[0].suggested_wine) {
-        await mockWineDelivery(finalResults[0].suggested_wine, finalResults[0].name);
-      }
-      
-      // Update Vibe Memory after EVERY successful restaurant search
+      // Update Vibe Memory BEFORE caching results
       // Extract cuisine from the top result or fall back to the search cuisine parameter
       const topCuisine = elements?.[0]?.tags?.cuisine || cuisine;
       
-      if (topCuisine) {
+      if (topCuisine && topCuisine.toLowerCase().trim() !== 'any') {
         const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
         // Add new cuisine to front, remove duplicates, cap at 3
         const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
         await cache.set(VIBE_MEMORY_KEY, newHistory, 86400 * 30); // 30 days TTL
         console.log(`Vibe Memory updated: ${JSON.stringify(newHistory)}`);
+      }
+
+      await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
+      
+      if (isSpecialIntent && finalResults[0].suggested_wine) {
+        await mockWineDelivery(finalResults[0].suggested_wine, finalResults[0].name);
       }
     }
 

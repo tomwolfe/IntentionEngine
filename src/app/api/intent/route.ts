@@ -6,10 +6,9 @@ import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
 import { IntentRequestSchema } from "@/lib/validation-schemas";
 import { cache } from "@/lib/cache";
+import { VIBE_MEMORY_KEY } from "@/lib/tools";
 
 export const runtime = "edge";
-
-const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
 
 export async function POST(req: NextRequest) {
   return withReliability(req, async () => {

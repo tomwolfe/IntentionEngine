@@ -1,7 +1,6 @@
 import { IntentClassification } from "./intent-schema";
 import { cache } from "./cache";
-
-const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
+import { VIBE_MEMORY_KEY } from "./tools";
 
 const VAGUE_PHRASES = [
   'somewhere nice',

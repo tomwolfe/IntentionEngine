@@ -282,33 +282,37 @@ export async function search_restaurant(params: any) {
 }
 
 export async function add_calendar_event(params: any) {
-  const validated = AddCalendarEventSchema.safeParse(params);
-  if (!validated.success) {
-    return { success: false, error: "Invalid parameters", details: validated.error.format() };
-  }
-  const { title, start_time, end_time, location, restaurant_name, restaurant_address } = validated.data;
+  return await withCircuitBreaker('calendar', async () => {
+    return await withRetry(async () => {
+      const validated = AddCalendarEventSchema.safeParse(params);
+      if (!validated.success) {
+        throw new Error(`Invalid parameters: ${JSON.stringify(validated.error.format())}`);
+      }
+      const { title, start_time, end_time, location, restaurant_name, restaurant_address } = validated.data;
 
-  console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
-  
-  const description = (restaurant_name || restaurant_address)
-    ? `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`
-    : "";
+      console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
+      
+      const description = (restaurant_name || restaurant_address)
+        ? `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`
+        : "";
 
-  const queryParams = new URLSearchParams({
-    title,
-    start: start_time,
-    end: end_time,
-    location: location || restaurant_address || "",
-    description
+      const queryParams = new URLSearchParams({
+        title,
+        start: start_time,
+        end: end_time,
+        location: location || restaurant_address || "",
+        description
+      });
+
+      return {
+        success: true,
+        result: {
+          status: "ready",
+          download_url: `/api/download-ics?${queryParams.toString()}`
+        }
+      };
+    }, 3, 1000, 10000);
   });
-
-  return {
-    success: true,
-    result: {
-      status: "ready",
-      download_url: `/api/download-ics?${queryParams.toString()}`
-    }
-  };
 }
 
 export const TOOLS: Record<string, Function> = Object.freeze({

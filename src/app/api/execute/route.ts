@@ -65,7 +65,12 @@ export async function POST(req: NextRequest) {
 
           // Check if all steps are done
           if (updatedSteps.length === log.plan.ordered_steps.length) {
-            await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
+            await updateAuditLog(audit_log_id, { 
+              final_outcome: { 
+                status: "SUCCESS", 
+                message: "All steps executed successfully." 
+              } 
+            });
           }
         } catch (auditError: any) {
           console.error(`CRITICAL: Tool ${step.tool_name} succeeded but updateAuditLog failed for log ${audit_log_id}.`, {
@@ -88,7 +93,13 @@ export async function POST(req: NextRequest) {
         const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
         
         try {
-          await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
+          await updateAuditLog(audit_log_id, { 
+            steps: updatedSteps, 
+            final_outcome: { 
+              status: "FAILURE", 
+              message: `Execution failed at step ${step_index}: ${error.message}` 
+            } 
+          });
         } catch (auditError: any) {
           console.error(`CRITICAL: Tool ${step.tool_name} failed AND updateAuditLog failed for log ${audit_log_id}.`, {
             audit_log_id,

@@ -6,7 +6,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isTo
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
 import { executeTool } from "@/lib/tools";
-import { Calendar, Mic, MicOff } from "lucide-react";
+import { Calendar, Mic } from "lucide-react";
 import { VibeMemoryPanel } from "./VibeMemoryPanel";
 
 class LocalProvider {
@@ -104,11 +104,16 @@ export default function Home() {
       const processIntent = async (currentInput: string) => {
         if (!currentInput.trim() || isLoading) return;
   
+        // Immediate feedback: Set thinking state and trigger haptic pulse
+        setActiveIntent({ type: "THINKING", isSpecialIntent: true });
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+
         let classification = await classifyIntent(currentInput);
         
         // Silent Hybrid Classification
         if (classification.confidence < 0.85) {
-          setActiveIntent({ type: "THINKING", isSpecialIntent: true }); // Show "Thinking..." state
           try {
             const engine = await localProvider.getEngine(() => {});
             await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
@@ -396,10 +401,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={startListening}
-                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-red-500 scale-125' : 'text-slate-300 hover:text-slate-900'}`}
+                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-blue-500 animate-pulse scale-105' : 'text-slate-300 hover:text-slate-900'}`}
                 disabled={isThinking}
               >
-                {isListening ? <MicOff size={32} /> : <Mic size={32} />}
+                <Mic size={32} />
               </button>
             </div>
           </form>

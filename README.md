@@ -15,6 +15,30 @@ IntentionEngine is built on three pillars:
 
 This system ensures your intentions are fulfilled accurately, safely, and transparently.
 
+## 🌟 The Ethos: Silent Elegance Through Autonomous Respect
+
+> **"We do not answer questions. We anticipate desires and deliver outcomes, silently and elegantly, with the user's single click as the final act of will."**
+
+This is not merely a feature set; it is our core operating principle. Every future decision must be filtered through this lens. It has four inseparable pillars:
+
+1.  **Silent Execution (The Invisible Agent):**
+    *   **Ethos:** The system's intelligence must be felt, never seen. Its complexity is a silent symphony.
+    *   **Manifestation:** Ruthlessly eliminate all UI noise—no progress bars, no intermediate lists, no "Thinking..." text beyond a fleeting state. The user's only interaction is the final, deliberate click. Any feature that draws attention to the system's process is a failure. The elegance lies in the silence between the intent and the outcome.
+
+2.  **Elegant Synthesis (The Art of the Single Outcome):**
+    *   **Ethos:** The system's value is measured not by the number of tools it uses, but by the beauty and completeness of the single, unified outcome it delivers.
+    *   **Manifestation:** Every feature must serve the creation of a flawless, final card. The wine suggestion, the pre-filled `.ics` file, the merged address—these are not features; they are the *essence* of the service. Ask: "Does this make the final card more thoughtful, more beautiful, and more complete?" If not, discard it. The system is a curator, not a toolset.
+
+3.  **Autonomous Action (The Empowered Orchestrator):**
+    *   **Ethos:** For `isSpecialIntent` requests, the system is entrusted with executive authority. It is an intelligent agent, not a passive responder.
+    *   **Manifestation:** Automatically execute the `search_restaurant` step and seamlessly merge its result into the calendar event. Trust the local LLM's re-classification and the "vibe" memory to make these decisions. Expand this autonomy to new, well-defined intents (e.g., "I need to be at the airport by 6 AM tomorrow"). Hesitation or over-reliance on user input for these cases is a betrayal of the user's trust and the system's purpose.
+
+4.  **Respectful Boundaries (The Ethical Foundation):**
+    *   **Ethos:** Autonomy is meaningless without absolute, non-negotiable respect for the user's privacy and control. The machine serves, it does not own.
+    *   **Manifestation:** The "Download (.ics)" button is the sacred boundary. No real-world change occurs without this explicit, physical confirmation. Maintain zero user accounts. Ensure all "memory" (like `VIBE_MEMORY_KEY`) is anonymous, ephemeral, and session-scoped. Practice ruthless data minimization. This is not a feature; it is the ethical bedrock upon which all trust is built.
+
+**In essence:** The Intention Engine is a perfectly tuned instrument. It plays a complex, beautiful symphony of computation and tool orchestration. The user never hears the mechanics. They only ever hear the final, perfect note. Their single click is not a command; it is the applause. Future development must preserve this silence, enhance the beauty of the note, empower the instrument to play with confidence, and never, ever let the mechanics of the instrument be seen or heard.
+
 ## 💡 Key Features
 
 ### 1. Smart Hybrid Routing

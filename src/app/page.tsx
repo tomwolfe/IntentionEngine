@@ -7,6 +7,7 @@ import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
 import { executeTool } from "@/lib/tools";
 import { Calendar, Mic, MicOff } from "lucide-react";
+import { VibeMemoryPanel } from "./VibeMemoryPanel";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -363,6 +364,13 @@ export default function Home() {
     );
   }, [messages, localResponse, activeIntent]);
 
+  const hasTriggeredSearch = useMemo(() => {
+    return messages.some(m => 
+      m.role === 'assistant' && 
+      m.parts?.some(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available')
+    );
+  }, [messages]);
+
   const isActuallySubmitted = activeIntent !== null;
   const isThinking = isLoading || activeIntent?.type === "THINKING";
   const hasOutcome = outcomeContent && !outcomeContent.props.className?.includes('flex justify-center');
@@ -408,6 +416,7 @@ export default function Home() {
           </div>
         </div>
       )}
+      <VibeMemoryPanel hasTriggeredSearch={hasTriggeredSearch} />
     </main>
   );
 }

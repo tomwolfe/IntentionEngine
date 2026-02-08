@@ -9,6 +9,17 @@ import { IntentClassification } from "./intent-schema";
 export function classifyIntent(input: string): IntentClassification {
   const normalized = input.toLowerCase().trim().replace(/[.,!?;:]/g, '');
 
+  // High-confidence special patterns
+  if (normalized.includes("airport") && /\bby\b\s+\d+/.test(normalized)) {
+    return { type: "TOOL_CALENDAR", confidence: 0.95, reason: "Airport time detected", isSpecialIntent: true };
+  }
+  if (normalized.includes("call") && (normalized.includes("remind") || /\bcall\s+(the\s+)?(mom|dad|wife|husband|boss|friend|doctor|dentist|him|her|them)\b/.test(normalized))) {
+    return { type: "TOOL_CALENDAR", confidence: 0.95, reason: "Call reminder detected", isSpecialIntent: true };
+  }
+  if (normalized.includes("book a flight") || /\btrip to\b/.test(normalized)) {
+    return { type: "TOOL_CALENDAR", confidence: 0.95, reason: "Trip planning detected", isSpecialIntent: true };
+  }
+
   const SEARCH_KEYWORDS = ['find', 'search', 'where', 'look for', 'nearby', 'restaurant', 'food', 'eat', 'dinner', 'lunch', 'breakfast', 'cafe', 'bar', 'pub'];
   const CALENDAR_KEYWORDS = ['plan', 'book', 'calendar', 'event', 'schedule', 'add to', 'meeting', 'appointment', 'reminder', 'ics'];
   const SPECIAL_KEYWORDS = ['special', 'romantic', 'anniversary', 'birthday', 'surprise', 'impress', 'date', 'proposal', 'celebration', 'exclusive', 'high-end', 'fancy', 'intimate'];

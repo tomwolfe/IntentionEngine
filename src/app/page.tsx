@@ -99,158 +99,162 @@ export default function Home() {
 
   const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse) || isExecutingChain;
 
-  const startListening = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert("Speech recognition not supported in this browser.");
-      return;
-    }
-
-    const recognition = new (window as any).webkitSpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
-    };
-
-    recognition.start();
-  };
-
-  const createAuditLog = async (intent: string, outcome: any) => {
-    try {
-      await fetch("/api/audit", {
-        method: "POST",
-        body: JSON.stringify({ intent, final_outcome: outcome }),
-        headers: { "Content-Type": "application/json" }
-      });
-    } catch (err) {
-      console.warn("Audit log failed", err);
-    }
-  };
-
-  const runAutomatedChain = async (id: string, plan: any, originalClassification: any) => {
-    setIsExecutingChain(true);
-    setActiveIntent({ type: "THINKING", isSpecialIntent: true });
-    setLocalResponse("");
-
-    try {
-      const toolResults: any[] = [];
-      for (let i = 0; i < plan.ordered_steps.length; i++) {
-        const step = plan.ordered_steps[i];
-        const { result } = await executeTool(id, i);
+      const processIntent = async (currentInput: string) => {
+        if (!currentInput.trim() || isLoading) return;
+  
+        let classification = classifyIntent(currentInput);
         
-        toolResults.push({
-          type: "dynamic-tool",
-          toolName: step.tool_name,
-          toolCallId: `call_${id}_${i}`,
-          state: "output-available",
-          input: step.parameters,
-          output: result
-        });
-      }
-
-      // Finalize the chain by updating messages to trigger the result card
-      setMessages([
-        ...messages,
-        {
-          id: `automated_${id}`,
-          role: "assistant",
-          parts: [
-            { type: "text", text: plan.summary },
-            ...toolResults
-          ]
-        }
-      ]);
-      
-      // Restore the classification state so UI logic (like isSimplified) works correctly
-      setActiveIntent({ ...originalClassification, plan });
-    } catch (err) {
-      console.error("Automated chain failed", err);
-      setActiveIntent({ type: "ERROR", isSpecialIntent: true });
-    } finally {
-      setIsExecutingChain(false);
-    }
-  };
-
-  const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const currentInput = input.trim();
-    let classification = classifyIntent(currentInput);
-    
-    // Silent Hybrid Classification
-    if (classification.confidence < 0.85) {
-      setActiveIntent({ type: "THINKING", isSpecialIntent: true }); // Show "Thinking..." state
-      try {
-        const engine = await localProvider.getEngine(() => {});
-        await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
-        const localClassifyPrompt = `Classify this intent: "${currentInput}". 
-        Return ONLY a JSON object: {"type": "COMPLEX_PLAN" | "TOOL_SEARCH" | "TOOL_CALENDAR" | "SIMPLE", "isSpecialIntent": boolean}`;
-        const response = await engine.generate(localClassifyPrompt);
-        const match = response.match(/\{.*\}/s);
-        if (match) {
-          const localClass = JSON.parse(match[0]);
-          classification = {
-            ...classification,
-            type: localClass.type,
-            isSpecialIntent: localClass.isSpecialIntent,
-            confidence: 0.95
-          };
-        }
-      } catch (err) {
-        console.warn("Local re-classification failed", err);
-      }
-    }
-
-    const finalClassification = {
-      ...classification,
-      isSpecialIntent: classification.isSpecialIntent || classification.type === "COMPLEX_PLAN"
-    };
-
-    setActiveIntent(finalClassification);
-    setInput("");
-
-    if (finalClassification.type === "SIMPLE") {
-      setLocalResponse("");
-      try {
-        const engine = await localProvider.getEngine(setLoadProgress);
-        await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
-        
-        const response = await engine.generateStream(currentInput, [], (text) => {
-          setLocalResponse(text);
-        });
-
-        await createAuditLog(currentInput, { status: "SUCCESS", message: response });
-      } catch (err: any) {
-        console.error("Local failed", err);
-        await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
-      }
-    } else {
-      // For v2.0, we want to capture audit_log_id and plan
-      const response: any = await sendMessage(
-        { text: currentInput }, 
-        { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } }
-      );
-
-      if (response?.audit_log_id) {
-        setAuditLogId(response.audit_log_id);
-        if (response.plan) {
-          const updatedWithPlan = { ...finalClassification, plan: response.plan };
-          setActiveIntent(updatedWithPlan);
-
-          if (finalClassification.isSpecialIntent) {
-            await runAutomatedChain(response.audit_log_id, response.plan, finalClassification);
+        // Silent Hybrid Classification
+        if (classification.confidence < 0.85) {
+          setActiveIntent({ type: "THINKING", isSpecialIntent: true }); // Show "Thinking..." state
+          try {
+            const engine = await localProvider.getEngine(() => {});
+            await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+            const localClassifyPrompt = `Classify this intent: "${currentInput}". 
+            Return ONLY a JSON object: {"type": "COMPLEX_PLAN" | "TOOL_SEARCH" | "TOOL_CALENDAR" | "SIMPLE", "isSpecialIntent": boolean}`;
+            const response = await engine.generate(localClassifyPrompt);
+            const match = response.match(/\{.*\}/s);
+            if (match) {
+              const localClass = JSON.parse(match[0]);
+              classification = {
+                ...classification,
+                type: localClass.type,
+                isSpecialIntent: localClass.isSpecialIntent,
+                confidence: 0.95
+              };
+            }
+          } catch (err) {
+            console.warn("Local re-classification failed", err);
           }
         }
-      }
-    }
-  };
-
+  
+        const finalClassification = {
+          ...classification,
+          isSpecialIntent: classification.isSpecialIntent || classification.type === "COMPLEX_PLAN"
+        };
+  
+        setActiveIntent(finalClassification);
+        setInput("");
+  
+        if (finalClassification.type === "SIMPLE") {
+          setLocalResponse("");
+          try {
+            const engine = await localProvider.getEngine(setLoadProgress);
+            await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+            
+            const response = await engine.generateStream(currentInput, [], (text) => {
+              setLocalResponse(text);
+            });
+  
+            await createAuditLog(currentInput, { status: "SUCCESS", message: response });
+          } catch (err: any) {
+            console.error("Local failed", err);
+            await sendMessage({ text: currentInput }, { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } });
+          }
+        } else {
+          // For v2.0, we want to capture audit_log_id and plan
+          const response: any = await sendMessage(
+            { text: currentInput }, 
+            { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } }
+          );
+  
+          if (response?.audit_log_id) {
+            setAuditLogId(response.audit_log_id);
+            if (response.plan) {
+              const updatedWithPlan = { ...finalClassification, plan: response.plan };
+              setActiveIntent(updatedWithPlan);
+  
+              if (finalClassification.isSpecialIntent) {
+                await runAutomatedChain(response.audit_log_id, response.plan, finalClassification);
+              }
+            }
+          }
+        }
+      };
+  
+      const startListening = () => {
+        if (!('webkitSpeechRecognition' in window)) {
+          return;
+        }
+  
+        const recognition = new (window as any).webkitSpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+  
+        recognition.onstart = () => setIsListening(true);
+        recognition.onend = () => setIsListening(false);
+        recognition.onresult = (event: any) => {
+          const transcript = event.results[0][0].transcript;
+          setInput(transcript);
+          processIntent(transcript);
+        };
+  
+        recognition.onerror = () => setIsListening(false);
+  
+        recognition.start();
+      };
+  
+      const createAuditLog = async (intent: string, outcome: any) => {
+        try {
+          await fetch("/api/audit", {
+            method: "POST",
+            body: JSON.stringify({ intent, final_outcome: outcome }),
+            headers: { "Content-Type": "application/json" }
+          });
+        } catch (err) {
+          console.warn("Audit log failed", err);
+        }
+      };
+  
+      const runAutomatedChain = async (id: string, plan: any, originalClassification: any) => {
+        setIsExecutingChain(true);
+        setActiveIntent({ type: "THINKING", isSpecialIntent: true });
+        setLocalResponse("");
+  
+        try {
+          const toolResults: any[] = [];
+          for (let i = 0; i < plan.ordered_steps.length; i++) {
+            const step = plan.ordered_steps[i];
+            const { result } = await executeTool(id, i);
+            
+            toolResults.push({
+              type: "dynamic-tool",
+              toolName: step.tool_name,
+              toolCallId: `call_${id}_${i}`,
+              state: "output-available",
+              input: step.parameters,
+              output: result
+            });
+          }
+  
+          // Finalize the chain by updating messages to trigger the result card
+          setMessages([
+            ...messages,
+            {
+              id: `automated_${id}`,
+              role: "assistant",
+              parts: [
+                { type: "text", text: plan.summary },
+                ...toolResults
+              ]
+            }
+          ]);
+          
+          // Restore the classification state so UI logic (like isSimplified) works correctly
+          setActiveIntent({ ...originalClassification, plan });
+        } catch (err) {
+          console.error("Automated chain failed", err);
+          setActiveIntent({ type: "ERROR", isSpecialIntent: true });
+        } finally {
+          setIsExecutingChain(false);
+        }
+      };
+  
+      const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        processIntent(input);
+      };
   const outcomeContent = useMemo(() => {
     if (activeIntent?.type === "SIMPLE") {
       if (localResponse) {
@@ -277,6 +281,25 @@ export default function Home() {
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
     const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
+    const isPureCalendar = isComplete && !searchPart;
+
+    if (isPureCalendar) {
+      const calendarResult = (calendarPart as any)?.output?.result;
+      const downloadUrl = calendarResult?.download_url;
+      if (!downloadUrl) return null;
+
+      return (
+        <div className="pt-4">
+          <a 
+            href={downloadUrl}
+            className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
+          >
+            <Calendar size={24} />
+            Download (.ics)
+          </a>
+        </div>
+      );
+    }
 
     if (isComplete || isSimplified) {
       const restaurant = (searchPart as any)?.output?.result?.[0] || { name: "Selected Location", address: "Confirmed" };

@@ -4,7 +4,7 @@
 
 IntentionEngine is not a chatbot. It is a revolutionary AI assistant that replaces unpredictable, verbose LLM chatter with a closed-loop system. It parses your intent, validates environmental constraints, and requires explicit user confirmation before manipulating real-world APIs, ensuring a seamless, safe, and fully traceable 'intent-to-outcome' journey.
 
-![IntentionEngine UI Concept](https://via.placeholder.com/800x400/1f2937/ffffff?text=IntentionEngine%3A+Type+%22Find+a+romantic+Italian+restaurant%22+→+Get+a+Restaurant+Card+%2B+Download+.ics+Button)
+[Demo Video](https://youtu.be/J-PFgUTXh0c)
 
 ## 🚀 Core Philosophy
 

@@ -1,4 +1,5 @@
 # IntentionEngine
+
 > **Transforming the Steve Jobs 'Intention Engine' concept into a deterministic, auditable intent execution pipeline.**
 
 IntentionEngine is not a chatbot. It is a revolutionary AI assistant that replaces unpredictable, verbose LLM chatter with a closed-loop system. It parses your intent, validates environmental constraints, and requires explicit user confirmation before manipulating real-world APIs, ensuring a seamless, safe, and fully traceable 'intent-to-outcome' journey.
@@ -6,6 +7,7 @@ IntentionEngine is not a chatbot. It is a revolutionary AI assistant that replac
 [Demo Video](https://youtu.be/J-PFgUTXh0c)
 
 ## 🚀 Core Philosophy: Silent Elegance Through Autonomous Respect
+
 > **"We do not answer questions. We anticipate desires and deliver outcomes, silently and elegantly, with the user's single click as the final act of will."**
 
 This is not merely a feature set; it is our core operating principle. Every future decision must be filtered through this lens. It has four inseparable pillars:
@@ -134,7 +136,6 @@ intentionengine/
 *   npm or yarn
 
 ### Steps
-
 1.  **Clone the Repository**
 ```bash
 git clone https://github.com/tomwolfe/IntentionEngine.git

@@ -46,15 +46,14 @@ export function getDeterministicPlan(
   
   const hasExplicitTime = hasParsedDate && parsedResults[0].start.isCertain('hour');
 
-  if (!hasExplicitTime) {
+  // Explicit override for romantic dinners to ensure they default to a sensible 7 PM UTC
+  if (classification.isSpecialIntent && (isDinner || normalized.includes("romantic"))) {
+    startTime.setUTCHours(19, 0, 0, 0);
+  } else if (!hasExplicitTime) {
     if (isDinner) {
-      // For dinner, if no time is specified, default to 7 PM (19:00)
-      // If "night" or "evening" was mentioned but no specific hour, chrono might have set a default
-      // We want to ensure it's a reasonable dinner time.
-      startTime.setHours(19, 0, 0, 0);
+      startTime.setUTCHours(19, 0, 0, 0);
     } else if (isLunch) {
-      // For lunch, default to 12 PM
-      startTime.setHours(12, 0, 0, 0);
+      startTime.setUTCHours(12, 0, 0, 0);
     }
   }
 

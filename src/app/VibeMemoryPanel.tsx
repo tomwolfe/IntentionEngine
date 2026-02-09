@@ -10,14 +10,14 @@ interface VibeMemoryPanelProps {
 
 export function VibeMemoryPanel({ hasTriggeredSearch }: VibeMemoryPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [memory, setMemory] = useState<string[]>([]);
+  const [memory, setMemory] = useState<{ cuisines: string[], preferences: Record<string, string> }>({ cuisines: [], preferences: {} });
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     const checkMemory = async () => {
       try {
         const data = await getVibeMemory();
-        if (data && data.length > 0) {
+        if ((data.cuisines && data.cuisines.length > 0) || (data.preferences && Object.keys(data.preferences).length > 0)) {
           setMemory(data);
           setIsVisible(true);
         } else if (!hasTriggeredSearch) {
@@ -81,13 +81,29 @@ export function VibeMemoryPanel({ hasTriggeredSearch }: VibeMemoryPanelProps) {
               </button>
             </div>
             
-            <div className="flex flex-wrap gap-2 mb-10">
-              {memory.length > 0 ? (
-                memory.map((item, i) => (
-                  <span key={i} className="px-4 py-1.5 bg-white/10 border border-white/5 rounded-full text-sm font-medium">
-                    • {item}
-                  </span>
-                ))
+            <div className="space-y-6 mb-10 overflow-y-auto max-h-[60vh] pr-2 custom-scrollbar">
+              {memory.cuisines.length > 0 || Object.keys(memory.preferences).length > 0 ? (
+                <>
+                  {Object.entries(memory.preferences).map(([key, value], i) => (
+                    <div key={`pref-${i}`} className="group/item">
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1 group-hover/item:text-amber-400/80 transition-colors">{key}</p>
+                      <p className="text-white text-sm font-medium leading-relaxed">{value}</p>
+                    </div>
+                  ))}
+                  
+                  {memory.cuisines.length > 0 && (
+                    <div className="pt-4 border-t border-white/5">
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Recent Cuisines</p>
+                      <div className="flex flex-wrap gap-2">
+                        {memory.cuisines.map((item, i) => (
+                          <span key={`cuisine-${i}`} className="px-3 py-1 bg-white/5 border border-white/5 rounded-full text-xs font-medium text-slate-300">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="text-slate-500 italic text-sm">Listening for your vibes...</p>
               )}

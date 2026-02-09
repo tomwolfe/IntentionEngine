@@ -25,24 +25,30 @@ describe('Resilience and Failover', () => {
     const primaryModel = env.LLM_MODEL;
     const secondaryModel = env.SECONDARY_LLM_MODEL;
 
-    // First call fails, second succeeds
+    // 1. Geocode call (nominatim)
+    // 2. Weather call (open-meteo)
+    // 3. Primary LLM call (fails)
+    // 4. Secondary LLM call (succeeds)
     (fetch as any)
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce({ // Geocode
+        ok: true,
+        json: () => Promise.resolve([{ lat: '51.5', lon: '-0.1' }])
+      })
+      .mockResolvedValueOnce({ // Weather
+        ok: true,
+        json: () => Promise.resolve({ daily: { weathercode: [0], temperature_2m_max: [20], temperature_2m_min: [10], precipitation_probability_max: [0] } })
+      })
+      .mockResolvedValueOnce({ // Primary LLM
         ok: false,
         status: 503,
         statusText: 'Service Unavailable'
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce({ // Secondary LLM
         ok: true,
         json: () => Promise.resolve({
           choices: [{
             message: {
-              content: JSON.stringify({
-                intent_type: 'dining',
-                constraints: [],
-                ordered_steps: [],
-                summary: 'Fallback success'
-              })
+              content: 'Fallback success'
             }
           }]
         })
@@ -51,25 +57,33 @@ describe('Resilience and Failover', () => {
     const plan = await generatePlan('I am hungry');
 
     expect(plan.summary).toBe('Fallback success');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(4);
 
-    // Verify first call used primary model
-    const firstCallBody = JSON.parse((fetch as any).mock.calls[0][1].body);
-    expect(firstCallBody.model).toBe(primaryModel);
+    // LLM calls are 3rd and 4th
+    const firstLLMCallBody = JSON.parse((fetch as any).mock.calls[2][1].body);
+    expect(firstLLMCallBody.model).toBe(primaryModel);
 
-    // Verify second call used secondary model
-    const secondCallBody = JSON.parse((fetch as any).mock.calls[1][1].body);
-    expect(secondCallBody.model).toBe(secondaryModel);
+    const secondLLMCallBody = JSON.parse((fetch as any).mock.calls[3][1].body);
+    expect(secondLLMCallBody.model).toBe(secondaryModel);
   });
 
   it('should throw error if both primary and secondary fail', async () => {
-    (fetch as any).mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable'
-    });
+    (fetch as any)
+      .mockResolvedValueOnce({ // Geocode
+        ok: true,
+        json: () => Promise.resolve([{ lat: '51.5', lon: '-0.1' }])
+      })
+      .mockResolvedValueOnce({ // Weather
+        ok: true,
+        json: () => Promise.resolve({ daily: { weathercode: [0], temperature_2m_max: [20], temperature_2m_min: [10], precipitation_probability_max: [0] } })
+      })
+      .mockResolvedValue({ // LLMs
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable'
+      });
 
     await expect(generatePlan('I am hungry')).rejects.toThrow('LLM call failed with status 503');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 });

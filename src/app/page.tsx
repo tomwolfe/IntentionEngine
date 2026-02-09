@@ -339,22 +339,33 @@ export default function Home() {
 
       return (
         <div className="space-y-4 pt-4">
-          <div className="p-8 border border-slate-100 rounded-[2rem] bg-white shadow-sm animate-in zoom-in-95 duration-500">
-            <h3 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">{restaurant.name}</h3>
-            <p className="text-slate-500 text-lg mb-6">{restaurant.address}</p>
+          <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
+            <div className="mb-10">
+              <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
+              <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
+            </div>
+
             {restaurant.suggested_wine && (
-              <div className="bg-amber-50/50 p-6 rounded-2xl border border-amber-100/50 mb-8">
-                <p className="text-xl text-amber-800 font-serif italic">“Pair with {restaurant.suggested_wine} to elevate the evening.”</p>
+              <div className="bg-amber-50/30 p-8 rounded-3xl border border-amber-100/50 mb-10 relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-1 h-full bg-amber-400/50" />
+                <p className="text-2xl text-amber-900/80 font-serif italic leading-relaxed">
+                  “Pair with {restaurant.suggested_wine} to elevate the evening.”
+                </p>
               </div>
             )}
+
             {downloadUrl && (
-              <a 
-                href={downloadUrl}
-                className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
-              >
-                <Calendar size={24} />
-                Download (.ics)
-              </a>
+              <div className="space-y-6">
+                <div className="h-px bg-slate-100 w-full" />
+                <a 
+                  href={downloadUrl}
+                  className="flex items-center justify-center gap-4 w-full py-6 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
+                >
+                  <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
+                  Finalize & Download (.ics)
+                </a>
+                <p className="text-center text-slate-400 text-sm font-medium tracking-wide uppercase">The Final Act of Will</p>
+              </div>
             )}
           </div>
         </div>
@@ -363,8 +374,12 @@ export default function Home() {
 
     // Default "Thinking" state for any non-final state
     return (
-      <div className="flex justify-center items-center py-20">
-        <div className="w-3 h-3 bg-slate-400 rounded-full animate-ping" />
+      <div className="flex flex-col justify-center items-center py-20 gap-8">
+        <div className="relative">
+          <div className="w-12 h-12 border-2 border-slate-100 rounded-full" />
+          <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-slate-900 rounded-full animate-spin" />
+        </div>
+        <p className="text-slate-400 font-medium tracking-widest uppercase text-xs animate-pulse">Anticipating your desires</p>
       </div>
     );
   }, [messages, localResponse, activeIntent]);
@@ -383,40 +398,45 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6 selection:bg-blue-100">
       {!hasOutcome ? (
-        <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          <form onSubmit={onFormSubmit} className="relative group">
+        <div className="w-full max-w-4xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
+          <form onSubmit={onFormSubmit} className="relative group mb-16">
             <input
               type="text"
               autoFocus
-              className="w-full bg-transparent border-b border-slate-200 py-6 pr-16 text-5xl font-light text-slate-800 placeholder-slate-300 outline-none focus:border-slate-900 transition-all duration-500"
-              placeholder="What's your intention?"
+              className="w-full bg-transparent border-b border-slate-200 py-8 pr-16 text-6xl font-extralight text-slate-800 placeholder-slate-200 outline-none focus:border-slate-900 transition-all duration-700"
+              placeholder="What do you desire?"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isThinking || isListening}
             />
-            <div className="absolute right-0 bottom-6 flex items-center gap-4">
+            <div className="absolute right-0 bottom-8 flex items-center gap-6">
               {isThinking && (
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(59,130,246,0.6)]" />
               )}
               <button
                 type="button"
                 onClick={startListening}
-                className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'text-blue-500 animate-pulse scale-105' : 'text-slate-300 hover:text-slate-900'}`}
+                className={`p-4 rounded-full transition-all duration-500 ${isListening ? 'text-blue-500 animate-pulse scale-125' : 'text-slate-300 hover:text-slate-900'}`}
                 disabled={isThinking}
               >
-                <Mic size={32} />
+                <Mic size={36} />
               </button>
             </div>
           </form>
           {activeIntent && activeIntent.type === "SIMPLE" && outcomeContent && (
-             <div className="mt-12 bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100 animate-in fade-in slide-in-from-top-4 duration-700">
+             <div className="mt-12 bg-white p-12 md:p-20 rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.04)] border border-slate-50 animate-in fade-in slide-in-from-top-8 duration-1000">
                 {outcomeContent}
              </div>
           )}
         </div>
       ) : (
-        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-12 duration-700">
-          <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-[0_40px_80px_rgba(0,0,0,0.04)] border border-slate-100">
+        <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-16 duration-1000">
+          <div className="mb-12 px-6">
+            <p className="text-3xl md:text-4xl font-extralight text-slate-800 leading-[1.4] tracking-tight text-center italic">
+              {activeIntent?.plan?.summary || messages[messages.length - 1]?.parts?.find(p => p.type === 'text')?.text}
+            </p>
+          </div>
+          <div className="bg-white p-10 md:p-16 rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.05)] border border-slate-50">
              {outcomeContent}
           </div>
         </div>

@@ -21,18 +21,18 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
 
 // Vibe Memory is now handled via the central Redis cache
 export const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
-const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
+export const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
 
-async function getVibePreferences() {
+export async function getVibePreferences() {
   return await cache.get<Record<string, string>>(VIBE_PREFERENCES_KEY) || {
     "Sarah": "prefers dry reds, hates loud music",
     "Atmosphere": "intimate, low lighting"
   };
 }
 
-function getSuggestedWine(cuisine: string, preferences: string): string {
+function getSuggestedWine(cuisine: string, preferences: Record<string, string>): string {
   const c = cuisine.toLowerCase();
-  const p = preferences.toLowerCase();
+  const p = Object.values(preferences).join(" ").toLowerCase();
   
   if (p.includes("dry red") || p.includes("cabernet") || p.includes("merlot")) {
     return "Vintage Cabernet Sauvignon";
@@ -174,7 +174,7 @@ export async function search_restaurant(params: any) {
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
   const isSpecialIntent = (params as any).isSpecialIntent;
   const preferences = await getVibePreferences();
-  const prefString = Object.entries(preferences).map(([k, v]) => `${k}: ${v}`).join("; ");
+  const prefValues = Object.values(preferences).join(" ").toLowerCase();
 
   if (isSpecialIntent) {
     romantic = true;
@@ -262,6 +262,7 @@ export async function search_restaurant(params: any) {
 
     const cuisineRegex = cuisine ? new RegExp(cuisine, 'i') : null;
     const romanticKeywords = ['romantic', 'fine dining', 'candlelight', 'intimate', 'french', 'italian', 'wine bar'];
+    const quietKeywords = ['quiet', 'peaceful', 'intimate', 'cozy', 'small', 'boutique'];
 
     elements.sort((a: any, b: any) => {
       let aScore = 0;
@@ -271,19 +272,29 @@ export async function search_restaurant(params: any) {
       const bCuisine = (b.tags?.cuisine || '').toLowerCase();
       const aName = (a.tags?.name || '').toLowerCase();
       const bName = (b.tags?.name || '').toLowerCase();
+      const aDescription = (a.tags?.description || '').toLowerCase();
+      const bDescription = (b.tags?.description || '').toLowerCase();
 
       if (cuisineRegex) {
         if (cuisineRegex.test(aCuisine) || cuisineRegex.test(aName)) aScore += 10;
         if (cuisineRegex.test(bCuisine) || cuisineRegex.test(bName)) bScore += 10;
       }
 
-      if (romantic) {
+      if (romantic || prefValues.includes("intimate")) {
         romanticKeywords.forEach(kw => {
-          if (aCuisine.includes(kw) || aName.includes(kw)) aScore += 5;
-          if (bCuisine.includes(kw) || bName.includes(kw)) bScore += 5;
+          if (aCuisine.includes(kw) || aName.includes(kw) || aDescription.includes(kw)) aScore += 5;
+          if (bCuisine.includes(kw) || bName.includes(kw) || bDescription.includes(kw)) bScore += 5;
         });
         if (aCuisine.includes('french') || aCuisine.includes('italian')) aScore += 3;
         if (bCuisine.includes('french') || bCuisine.includes('italian')) bScore += 3;
+      }
+
+      // Vibe Bias: Intuition-based scoring for "quiet" and "intimate"
+      if (prefValues.includes("hates loud music") || prefValues.includes("quiet")) {
+        quietKeywords.forEach(kw => {
+          if (aCuisine.includes(kw) || aName.includes(kw) || aDescription.includes(kw)) aScore += 8;
+          if (bCuisine.includes(kw) || bName.includes(kw) || bDescription.includes(kw)) bScore += 8;
+        });
       }
 
       return bScore - aScore;
@@ -321,7 +332,7 @@ export async function search_restaurant(params: any) {
       if (!addr) addr = "Address not available";
 
       const restaurantCuisine = el.tags.cuisine || cuisine || "Restaurant";
-      const wine = romantic ? getSuggestedWine(restaurantCuisine, prefString) : undefined;
+      const wine = (romantic || isSpecialIntent) ? getSuggestedWine(restaurantCuisine, preferences) : undefined;
       
       const rawResult = {
         name,

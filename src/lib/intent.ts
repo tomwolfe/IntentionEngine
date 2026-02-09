@@ -1,6 +1,8 @@
 import { IntentClassification } from "./intent-schema";
 import { cache } from "./cache";
 import { VIBE_MEMORY_KEY } from "./tools";
+import { Plan } from "./schema";
+import * as chrono from "chrono-node";
 
 const VAGUE_PHRASES = [
   'somewhere nice',
@@ -13,6 +15,95 @@ const VAGUE_PHRASES = [
   'good restaurant',
   'nice restaurant'
 ];
+
+/**
+ * Deterministically generates the muscle of the plan (ordered_steps).
+ * The LLM will later provide the summary (the whisper).
+ */
+export function getDeterministicPlan(
+  classification: IntentClassification,
+  input: string,
+  userLocation?: { lat: number; lng: number } | null
+): Partial<Plan> {
+  const normalized = input.toLowerCase();
+  const lat = userLocation?.lat || 51.5074;
+  const lon = userLocation?.lng || -0.1278;
+
+  // Extract date from input or default to today
+  const parsedDate = chrono.parseDate(input) || new Date();
+  const dateStr = parsedDate.toISOString();
+  
+  // End time is always 2 hours later (Sacred Rule)
+  const endDate = new Date(parsedDate.getTime() + 2 * 60 * 60 * 1000);
+  const endDateStr = endDate.toISOString();
+
+  // Simple cuisine extraction
+  const CUISINE_LIST = ['italian', 'french', 'japanese', 'chinese', 'mexican', 'indian', 'spanish', 'thai', 'sushi', 'pizza', 'steak', 'seafood', 'burger', 'tapas', 'bistro'];
+  const cuisineMatch = CUISINE_LIST.find(c => normalized.includes(c));
+  const cuisine = cuisineMatch || "any";
+
+  if (classification.type === "TOOL_SEARCH") {
+    return {
+      intent_type: "dining",
+      constraints: ["find restaurant", `near ${lat}, ${lon}`],
+      ordered_steps: [
+        {
+          tool_name: "search_restaurant",
+          parameters: { 
+            cuisine,
+            lat,
+            lon,
+            romantic: classification.isSpecialIntent
+          },
+          requires_confirmation: false,
+          description: "Finding the perfect venue for you."
+        }
+      ]
+    };
+  }
+
+  if (classification.type === "TOOL_CALENDAR" || classification.type === "COMPLEX_PLAN") {
+    const steps = [];
+    
+    if (classification.type === "COMPLEX_PLAN" || normalized.includes("restaurant") || normalized.includes("dinner") || normalized.includes("lunch")) {
+      steps.push({
+        tool_name: "search_restaurant",
+        parameters: { 
+          cuisine,
+          lat,
+          lon,
+          romantic: classification.isSpecialIntent
+        },
+        requires_confirmation: false,
+        description: "Finding the perfect venue for you."
+      });
+    }
+
+    steps.push({
+      tool_name: "add_calendar_event",
+      parameters: { 
+        title: classification.isSpecialIntent ? "Special Occasion" : "Event",
+        start_time: dateStr,
+        end_time: endDateStr,
+        location: "" // To be filled by restaurant result in client
+      },
+      requires_confirmation: true,
+      description: "Preparing your calendar for the final act."
+    });
+
+    return {
+      intent_type: classification.type === "COMPLEX_PLAN" ? "dining_and_calendar" : "scheduling",
+      constraints: ["deterministic orchestration", "2-hour duration"],
+      ordered_steps: steps
+    };
+  }
+
+  return {
+    intent_type: "simple_response",
+    constraints: [],
+    ordered_steps: []
+  };
+}
 
 /**
  * Classifies the user intent using a hybrid approach:
@@ -30,10 +121,10 @@ export async function classifyIntent(input: string): Promise<IntentClassificatio
     const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
     if (vibeMemory && vibeMemory.length > 0) {
       return {
-        type: "TOOL_SEARCH",
+        type: "COMPLEX_PLAN", // Upgrade to complex plan to include calendar
         confidence: 0.95,
         reason: `Vague request with strong vibe memory: ${vibeMemory[0]}`,
-        isSpecialIntent: false
+        isSpecialIntent: true // Trigger the magic
       };
     }
   }

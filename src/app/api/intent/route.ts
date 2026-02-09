@@ -6,7 +6,7 @@ import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
 import { IntentRequestSchema } from "@/lib/validation-schemas";
 import { cache } from "@/lib/cache";
-import { VIBE_MEMORY_KEY } from "@/lib/tools";
+import { VIBE_MEMORY_KEY, VIBE_PREFERENCES_KEY } from "@/lib/tools";
 
 export const runtime = "edge";
 
@@ -59,9 +59,10 @@ export async function POST(req: NextRequest) {
 
       // 2. PLAN: If intent is not 'SIMPLE', generate a Plan using src/lib/llm.ts.
       const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
+      const vibePreferences = await cache.get<Record<string, string>>(VIBE_PREFERENCES_KEY);
 
       try {
-        const plan = await generatePlan(intent, user_location, vibeMemory);
+        const plan = await generatePlan(intent, user_location, vibeMemory, vibePreferences);
         
         // Validate it against PlanSchema. 
         PlanSchema.parse(plan);

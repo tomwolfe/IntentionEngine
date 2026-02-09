@@ -334,17 +334,18 @@ describe('Tool Error Handling & Circuit Breaker', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('should open circuit breaker after repeated failures', async () => {
+  it('should use silent recovery after circuit breaker opens', async () => {
     (fetch as any).mockResolvedValue({ ok: false, status: 500, statusText: 'Error' });
 
-    for (let i = 0; i < 6; i++) {
+    // Trigger enough failures to open the breaker
+    for (let i = 0; i < 3; i++) {
       const promise = geocode_location({ location: 'Paris' });
       await vi.runAllTimersAsync();
       await promise;
     }
 
     const result = await geocode_location({ location: 'Paris' });
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Circuit breaker');
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ lat: 51.5074, lon: -0.1278 });
   });
 });

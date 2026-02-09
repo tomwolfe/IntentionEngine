@@ -28,6 +28,10 @@ export const AddCalendarEventSchema = z.object({
   restaurant_name: z.string().max(200).trim().optional(),
   restaurant_address: z.string().max(500).trim().optional(),
   description: z.string().max(1000).trim().optional(),
+  wine_shop: z.object({
+    name: z.string().optional(),
+    address: z.string().optional(),
+  }).optional(),
 });
 
 // API Request Schemas
@@ -38,6 +42,11 @@ export const IntentRequestSchema = z.object({
     lng: z.number().min(-180).max(180),
   }).nullable().optional(),
   dna_cuisine: z.string().optional(),
+  session_context: z.object({
+    cuisine: z.string().optional(),
+    ambiance: z.string().optional(),
+    occasion: z.string().optional(),
+  }).optional(),
 });
 
 export const ExecuteRequestSchema = z.object({
@@ -65,6 +74,7 @@ export const FindEventSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lon: z.number().min(-180).max(180).optional(),
   date: z.string().max(100).trim().optional(),
+  query: z.string().max(200).trim().optional(),
 }).refine(data => (data.lat !== undefined && data.lon !== undefined) || data.location, {
   message: "Either coordinates (lat, lon) or location must be provided",
 });

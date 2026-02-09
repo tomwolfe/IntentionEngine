@@ -22,7 +22,8 @@ export function getDeterministicPlan(
   classification: IntentClassification,
   input: string,
   userLocation?: { lat: number; lng: number } | null,
-  dnaCuisine?: string
+  dnaCuisine?: string,
+  sessionContext?: any
 ): Partial<Plan> {
   const normalized = input.toLowerCase();
   const lat = userLocation?.lat || 51.5074;
@@ -46,12 +47,58 @@ export function getDeterministicPlan(
   const endDateStr = endDate.toISOString();
 
   // Simple cuisine extraction
-  const CUISINE_LIST = ['italian', 'french', 'japanese', 'chinese', 'mexican', 'indian', 'spanish', 'thai', 'sushi', 'pizza', 'steak', 'seafood', 'burger', 'tapas', 'bistro'];
-  const cuisineMatch = CUISINE_LIST.find(c => normalized.includes(c));
+  const CUISINE_LIST = ['italian', 'french', 'japanese', 'chinese', 'mexican', 'indian', 'spanish', 'thai', 'sushi', 'pizza', 'steak', 'seafood', 'burger', 'tapas', 'bistro', 'wine shop'];
+  let cuisineMatch = CUISINE_LIST.find(c => normalized.includes(c));
   
-  // Vibe Bias: Use dnaCuisine for vague requests if no explicit cuisine is mentioned
-  const isVague = VAGUE_PHRASES.some(phrase => normalized.includes(phrase));
-  const cuisine = cuisineMatch || (isVague && dnaCuisine ? dnaCuisine : "any");
+  // Vibe Bias: Use sessionContext or dnaCuisine for vague requests
+  const isVague = VAGUE_PHRASES.some(phrase => normalized.includes(phrase)) || 
+                  (normalized.includes("wine") || normalized.includes("drink") || normalized.includes("bar"));
+  
+  // If vague and we have session context, bias towards it
+  if (isVague && (normalized.includes("wine") || normalized.includes("drink") || normalized.includes("bar")) && sessionContext?.cuisine === 'french') {
+    cuisineMatch = 'wine shop';
+  }
+
+  const cuisine = cuisineMatch || (isVague && (sessionContext?.cuisine || dnaCuisine) ? (sessionContext?.cuisine || dnaCuisine) : "any");
+
+  if (classification.metadata?.isWeekendGetaway) {
+    // Phase 3: "The Perfect Day" Scenario
+    const fridayDinner = new Date(parsedDate);
+    fridayDinner.setHours(19, 0, 0, 0);
+    const saturdayActivity = new Date(parsedDate.getTime() + 24 * 60 * 60 * 1000);
+    saturdayActivity.setHours(11, 0, 0, 0);
+
+    return {
+      intent_type: "weekend_getaway",
+      constraints: ["Weekend orchestration", "multiple events"],
+      ordered_steps: [
+        {
+          tool_name: "search_restaurant",
+          parameters: { cuisine, lat, lon, romantic: true },
+          requires_confirmation: false,
+          description: "Finding a perfect Friday dinner spot."
+        },
+        {
+          tool_name: "find_event",
+          parameters: { query: "popular activity", lat, lon, date: saturdayActivity.toISOString() },
+          requires_confirmation: false,
+          description: "Discovering a Saturday adventure."
+        },
+        {
+          tool_name: "add_calendar_event",
+          parameters: { 
+            title: "Weekend Getaway",
+            start_time: fridayDinner.toISOString(),
+            end_time: saturdayActivity.toISOString(),
+            location: "Weekend Destination",
+            description: "Your perfectly curated weekend escape."
+          },
+          requires_confirmation: true,
+          description: "Synthesizing your getaway."
+        }
+      ]
+    };
+  }
 
   if (classification.type === "TOOL_SEARCH") {
     return {
@@ -90,6 +137,16 @@ export function getDeterministicPlan(
       });
     }
 
+    // Intent Fusion: Dinner + Movie
+    if (classification.metadata?.isDateNight) {
+      steps.push({
+        tool_name: "find_event",
+        parameters: { query: "movie", lat, lon },
+        requires_confirmation: false,
+        description: "Finding a cinematic escape."
+      });
+    }
+
     if (isTransport) {
       steps.push({
         tool_name: "add_calendar_event",
@@ -106,7 +163,7 @@ export function getDeterministicPlan(
       steps.push({
         tool_name: "add_calendar_event",
         parameters: { 
-          title: classification.isSpecialIntent ? "Special Occasion" : "Event",
+          title: classification.metadata?.isDateNight ? "Date Night" : (classification.isSpecialIntent ? "Special Occasion" : "Event"),
           start_time: dateStr,
           end_time: endDateStr,
           location: "" // To be filled by restaurant result in client
@@ -137,11 +194,35 @@ export function getDeterministicPlan(
  * 3. Fallback to simple intent detection
  * 4. Default to requiring LLM refinement
  */
-export async function classifyIntent(input: string): Promise<IntentClassification> {
+export async function classifyIntent(input: string, sessionContext?: any): Promise<IntentClassification> {
   const normalized = input.toLowerCase().trim().replace(/[.,!?;:]/g, '');
 
-  // Check for vague requests
-  const isVagueRequest = VAGUE_PHRASES.some(phrase => normalized.includes(phrase));
+  // Check for weekend getaway
+  if (normalized.includes("weekend trip") || normalized.includes("getaway") || normalized.includes("escape")) {
+    return {
+      type: "COMPLEX_PLAN",
+      confidence: 0.95,
+      reason: "Weekend getaway intent detected",
+      isSpecialIntent: true,
+      metadata: { isWeekendGetaway: true }
+    };
+  }
+
+  // Check for date night
+  if (normalized.includes("date night") || normalized.includes("evening out")) {
+    return {
+      type: "COMPLEX_PLAN",
+      confidence: 0.95,
+      reason: "Date night intent detected",
+      isSpecialIntent: true,
+      metadata: { isDateNight: true }
+    };
+  }
+
+  // Check for vague requests with session context bias
+  const isVagueRequest = VAGUE_PHRASES.some(phrase => normalized.includes(phrase)) || 
+                         (sessionContext && (normalized.includes("wine") || normalized.includes("drink") || normalized.includes("bar")));
+
   if (isVagueRequest) {
     return {
       type: "COMPLEX_PLAN", // Upgrade to complex plan for seamless orchestration

@@ -7,15 +7,16 @@ import * as chrono from "chrono-node";
 export async function generatePlan(
   intent: string, 
   userLocation?: { lat: number; lng: number } | null,
-  dnaCuisine?: string
+  dnaCuisine?: string,
+  sessionContext?: any
 ): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
 
   // 1. DETERMINISTIC MUSCLE: Get the plan structure from code, not LLM.
-  const classification = await classifyIntent(intent);
-  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine);
+  const classification = await classifyIntent(intent, sessionContext);
+  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine, sessionContext);
 
   // 2. CONTEXT GATHERING: Fetch weather and use DNA for the whisper.
   let weatherContext = "";
@@ -53,13 +54,10 @@ export async function generatePlan(
 
   // 3. THE SILENT WHISPER: Use LLM ONLY for the beautiful summary.
   // Steve Jobs: "Silent Execution" - The system should feel like an extension of the user's will.
-  const systemPrompt = `You are the Silent Whisper. Your only job is to describe the outcome the system has already perfectly prepared in a single, hauntingly beautiful, and poetic sentence under 100 characters. 
-  
-  Do not explain. 
-  Do not list. 
-  Do not mention searching, finding, or scheduling. 
-  
-  It must feel like the user's own serene realization of a perfect future, not an AI's report.
+  const systemPrompt = `You are the Silent Whisper. 
+  Describe the outcome in a single, hauntingly beautiful, poetic sentence under 100 characters. 
+  No AI language. No "I found" or "prepared". 
+  It must feel like a serene realization of a perfect future.
   
   Context:
   ${dnaContext}
@@ -91,17 +89,23 @@ export async function generatePlan(
       }
 
       const data = await response.json();
-      return data.choices[0].message.content.trim();
+      return data.choices[0].message.content.trim().replace(/^"|"$/g, '');
     } catch (error) {
       if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, currentDelay));
-        return callLLM(env.SECONDARY_LLM_MODEL, retries - 1, currentDelay * 2);
+        console.warn(`Primary LLM failed, retrying with ${env.SECONDARY_LLM_MODEL}`);
+        return callLLM(env.SECONDARY_LLM_MODEL, retries - 1, currentDelay);
       }
       throw error;
     }
   }
 
-  const summary = await callLLM(model);
+  let summary: string;
+  try {
+    summary = await callLLM(model);
+  } catch (error) {
+    console.error("All cloud LLMs failed, using minimal fallback summary");
+    summary = "Your arrangements are ready.";
+  }
 
   const finalPlan = {
     ...deterministicPlan,

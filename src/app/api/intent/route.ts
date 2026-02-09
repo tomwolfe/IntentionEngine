@@ -19,10 +19,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { intent, user_location, dna_cuisine } = validatedBody.data;
+      const { intent, user_location, dna_cuisine, session_context } = validatedBody.data;
 
       // 1. CLASSIFY
-      const classification = await classifyIntent(intent);
+      const classification = await classifyIntent(intent, session_context);
       
       // If type === 'SIMPLE': use local-llm-engine.ts to generate response and terminate.
       // We use a confidence threshold to ensure only clear simple intents are handled locally.
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       // 2. PLAN: If intent is not 'SIMPLE', generate a Plan using src/lib/llm.ts.
 
       try {
-        const plan = await generatePlan(intent, user_location, dna_cuisine);
+        const plan = await generatePlan(intent, user_location, dna_cuisine, session_context);
         
         // Validate it against PlanSchema. 
         PlanSchema.parse(plan);

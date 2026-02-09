@@ -77,7 +77,7 @@ describe('API Endpoints', () => {
 
     const req = new NextRequest('http://localhost/api/intent', {
       method: 'POST',
-      body: JSON.stringify({ intent: 'Fail' })
+      body: JSON.stringify({ intent: 'I want to find a nice place to eat and then schedule it' })
     });
     const res = await intentPOST(req);
     expect(res.status).toBe(200);

@@ -67,7 +67,7 @@ describe('Resilience and Failover', () => {
     expect(secondLLMCallBody.model).toBe(secondaryModel);
   });
 
-  it('should throw error if both primary and secondary fail', async () => {
+  it('should fallback to minimal summary if both primary and secondary fail', async () => {
     (fetch as any)
       .mockResolvedValueOnce({ // Geocode
         ok: true,
@@ -83,7 +83,8 @@ describe('Resilience and Failover', () => {
         statusText: 'Service Unavailable'
       });
 
-    await expect(generatePlan('I am hungry')).rejects.toThrow('LLM call failed with status 503');
+    const plan = await generatePlan('I am hungry');
+    expect(plan.summary).toBe('Your arrangements are ready.');
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 });

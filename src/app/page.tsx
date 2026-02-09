@@ -32,10 +32,21 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
       const [auditLogId, setAuditLogId] = useState<string | null>(null);
   const [isExecutingChain, setIsExecutingChain] = useState(false);
-  const [whisperData, setWhisperData] = useState<{show: boolean, restaurant: any, wineShopResult: any}>({show: false, restaurant: null, wineShopResult: null});
+  const [whisperData, setWhisperData] = useState<{show: boolean, restaurant: any, wineShopResult: any, sessionContext: any}>({
+    show: false, 
+    restaurant: null, 
+    wineShopResult: null,
+    sessionContext: {}
+  });
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
+    // Restore session context from sessionStorage if available
+    const savedContext = sessionStorage.getItem('intent-session-context');
+    if (savedContext) {
+      setWhisperData(prev => ({ ...prev, sessionContext: JSON.parse(savedContext) }));
+    }
+    
     // Pre-loaded the Phi-3.5-mini-instruct-q4f16_1-MLC model on app start
     const preload = async () => {
       try {
@@ -54,6 +65,12 @@ export default function Home() {
       );
     }
   }, []);
+
+  const updateSessionContext = (newContext: any) => {
+    const updated = { ...whisperData.sessionContext, ...newContext };
+    setWhisperData(prev => ({ ...prev, sessionContext: updated }));
+    sessionStorage.setItem('intent-session-context', JSON.stringify(updated));
+  };
 
   const customTransport = useMemo(() => {
     const baseTransport = new DefaultChatTransport({
@@ -113,7 +130,7 @@ export default function Home() {
 
         const dnaCuisine = typeof window !== 'undefined' ? sessionStorage.getItem('intent-dna-cuisine') || undefined : undefined;
 
-        let classification = await classifyIntent(currentInput);
+        let classification = await classifyIntent(currentInput, whisperData.sessionContext);
         
         // Silent Hybrid Classification
         if (classification.confidence < 0.85) {
@@ -165,7 +182,13 @@ export default function Home() {
           // For v2.0, we want to capture audit_log_id and plan
           const response: any = await sendMessage(
             { text: currentInput }, 
-            { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent, dnaCuisine } }
+            { body: { 
+                userLocation, 
+                isSpecialIntent: finalClassification.isSpecialIntent, 
+                dnaCuisine,
+                session_context: whisperData.sessionContext
+              } 
+            }
           );
   
           if (response?.audit_log_id) {
@@ -234,15 +257,34 @@ export default function Home() {
         setIsExecutingChain(true);
         setActiveIntent({ type: "THINKING", isSpecialIntent: true });
         setLocalResponse("");
-        setWhisperData({ show: false, restaurant: null, wineShopResult: null });
-  
+        
+        // Offline Mode: Check if offline
+        const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
         try {
           const toolResults: any[] = [];
           let restaurantData: any = null;
           let hasCalendarEvent = false;
+          let wineShopResult: any = null;
           
           for (let i = 0; i < plan.ordered_steps.length; i++) {
             const step = plan.ordered_steps[i];
+            
+            // Autonomous Wine Shop: Trigger in background after restaurant search
+            if (restaurantData?.cuisine && step.tool_name === 'add_calendar_event') {
+              try {
+                const res = await executeTool('find_event', {
+                  location: restaurantData.address,
+                  query: 'wine shop'
+                });
+                if (res?.success && res?.result?.[0]) {
+                  wineShopResult = res.result[0];
+                }
+              } catch (e) {
+                console.warn("Silent wine shop search failed", e);
+              }
+            }
+
             const { result } = await executeTool(id, i);
             
             toolResults.push({
@@ -254,9 +296,14 @@ export default function Home() {
               output: result
             });
             
-            // Track restaurant data for whisper
+            // Track restaurant data for whisper and session context
             if (step.tool_name === 'search_restaurant' && result?.success && result?.result?.[0]) {
               restaurantData = result.result[0];
+              updateSessionContext({
+                cuisine: restaurantData.cuisine,
+                ambiance: originalClassification.isSpecialIntent ? 'romantic' : 'standard',
+                occasion: originalClassification.metadata?.isDateNight ? 'date_night' : undefined
+              });
             }
             
             // Track if we have a calendar event
@@ -266,7 +313,6 @@ export default function Home() {
           }
   
           // Propagation: Ensure restaurant details flow into the calendar part for UI/ICS consistency
-          // Steve Jobs: "Autonomous Action" - The system anticipates and connects every detail without being asked.
           const searchPart = toolResults.find(p => p.toolName === 'search_restaurant');
           const calendarPart = toolResults.find(p => p.toolName === 'add_calendar_event');
 
@@ -278,20 +324,30 @@ export default function Home() {
                 title: restaurant.name,
                 location: restaurant.address,
                 restaurant_name: restaurant.name,
-                restaurant_address: restaurant.address
+                restaurant_address: restaurant.address,
+                wine_shop: wineShopResult ? { name: wineShopResult.name, address: wineShopResult.location } : undefined
               };
             }
           }
           
-          // Contextual Completion Whisper: Check if we should show wine shop suggestion
-          // Only show if we have a restaurant with cuisine and a calendar event (romantic dinner scenario)
-          if (restaurantData?.cuisine && hasCalendarEvent) {
-            setWhisperData({
-              show: true,
-              restaurant: restaurantData,
-              wineShopResult: null
-            });
+          // Pre-emptive Whisper Validation
+          let finalSummary = plan.summary;
+          const forbiddenWords = ["found", "searched", "scheduled", "prepared", "I've"];
+          const isBadWhisper = !finalSummary || finalSummary.length > 100 || forbiddenWords.some(word => finalSummary.toLowerCase().includes(word));
+
+          if (isBadWhisper || isOffline) {
+            try {
+              const engine = await localProvider.getEngine(() => {});
+              await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+              const whisperPrompt = `Describe this in one poetic sentence under 100 chars: ${originalClassification.reason}. No AI words.`;
+              finalSummary = await engine.generate(whisperPrompt);
+              if (finalSummary.length > 100) finalSummary = "Your arrangements are ready.";
+            } catch (err) {
+              finalSummary = "A bottle of wine has been suggested for your evening.";
+            }
           }
+
+          setWhisperData(prev => ({ ...prev, show: false, restaurant: restaurantData, wineShopResult }));
 
           // Finalize the chain by updating messages to trigger the result card
           setMessages([
@@ -300,14 +356,14 @@ export default function Home() {
               id: `automated_${id}`,
               role: "assistant",
               parts: [
-                { type: "text", text: plan.summary },
+                { type: "text", text: finalSummary },
                 ...toolResults
               ]
             }
           ]);
           
           // Restore the classification state so UI logic (like isSimplified) works correctly
-          setActiveIntent({ ...originalClassification, plan });
+          setActiveIntent({ ...originalClassification, plan: { ...plan, summary: finalSummary } });
         } catch (err) {
           console.error("Automated chain failed", err);
           setActiveIntent({ type: "ERROR", isSpecialIntent: true });
@@ -361,8 +417,9 @@ export default function Home() {
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistantMessage) return null;
 
-    // Search for search and calendar results
+    // Search for search, event and calendar results
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
+    const eventPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'find_event' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
     
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
@@ -375,13 +432,15 @@ export default function Home() {
         address: (calendarPart as any)?.input?.location || "Confirmed" 
       };
       
+      const event = (eventPart as any)?.output?.result?.[0];
+      
       // Intent Fusion: Check for multiple calendar events
       const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
       const allCalendarParts = lastAssistantMessage?.parts?.filter((p: any) => 
         isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available'
       ) || [];
       
-      const isFused = allCalendarParts.length >= 2;
+      const isFused = allCalendarParts.length >= 2 || event !== undefined;
       
       let downloadUrl: string | undefined;
       
@@ -390,7 +449,7 @@ export default function Home() {
       const startTime = (firstCalendarPart as any)?.input?.start_time;
       const formattedTime = startTime ? new Date(startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
       
-      if (isFused) {
+      if (allCalendarParts.length >= 2) {
         // Generate fused ICS URL with multiple events
         const events = allCalendarParts.map((part: any) => ({
           title: part.input?.title || 'Event',
@@ -416,6 +475,10 @@ export default function Home() {
               url.searchParams.set('title', r.name);
               url.searchParams.set('location', r.address);
               url.searchParams.set('description', `Restaurant: ${r.name}\nAddress: ${r.address}`);
+              if (event) {
+                const existingDesc = url.searchParams.get('description');
+                url.searchParams.set('description', `${existingDesc}\n\nEvent: ${event.name}\nLocation: ${event.location}`);
+              }
               downloadUrl = url.pathname + url.search;
             } catch (e) {
               console.warn("Failed to repair download URL", e);
@@ -433,7 +496,7 @@ export default function Home() {
       return (
         <div className="space-y-4 pt-4">
           <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
-            {isFused ? (
+            {allCalendarParts.length >= 2 ? (
               // Intent Fusion: Unified card for multiple events
               <div className="mb-10">
                 {allCalendarParts.map((part: any, index: number) => {
@@ -464,7 +527,7 @@ export default function Home() {
                 })}
               </div>
             ) : (
-              // Standard single event card
+              // Standard single event card (possibly fused with event)
               <div className="mb-10">
                 <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
                 <div className="flex flex-col gap-2">
@@ -473,6 +536,14 @@ export default function Home() {
                     <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
                   )}
                 </div>
+
+                {event && (
+                  <>
+                    <div className="h-px bg-slate-100 w-full my-8" />
+                    <h4 className="text-2xl font-bold text-slate-700 mb-2">{event.name}</h4>
+                    <p className="text-slate-400 text-xl font-light">{event.location}</p>
+                  </>
+                )}
               </div>
             )}
 

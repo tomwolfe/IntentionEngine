@@ -29,7 +29,7 @@ describe('Intent Classification', () => {
   it('should return SIMPLE for short ambiguous input', async () => {
     const result = await classifyIntent('abc');
     expect(result.type).toBe('SIMPLE');
-    expect(result.confidence).toBe(0.8);
+    expect(result.confidence).toBe(0.9);
   });
 
   it('should return SIMPLE with low confidence for long unknown input', async () => {
@@ -43,8 +43,8 @@ describe('Intent Classification', () => {
     expect((await classifyIntent('much appreciated')).confidence).toBe(1.0);
   });
 
-  it('should return 0.9 confidence for simple keywords in sentences', async () => {
-    expect((await classifyIntent('well hello there')).confidence).toBe(0.9);
+  it('should return 0.95 confidence for simple keywords in sentences', async () => {
+    expect((await classifyIntent('well hello there')).confidence).toBe(0.95);
   });
 
   it('should classify vague requests as COMPLEX_PLAN and special intent', async () => {

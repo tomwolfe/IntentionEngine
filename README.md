@@ -17,11 +17,11 @@ This is not merely a feature set; it is our core operating principle. Every futu
 
 ### 2. **Elegant Synthesis (The Art of the Single Outcome)**
 *   **Ethos:** The system's value is measured not by the number of tools it uses, but by the beauty and completeness of the single, unified outcome it delivers.
-*   **Manifestation:** Every feature must serve the creation of a flawless, final card. The wine suggestion, the pre-filled `.ics` file, the merged address—these are not features; they are the *essence* of the service. Ask: "Does this make the final card more thoughtful, more beautiful, and more complete?" If not, discard it. The system is a curator, not a toolset.
+*   **Manifestation:** Every feature must serve the creation of a flawless, final card. The wine suggestion, the pre-filled `.ics` file, the merged address, the event discovery, the navigation link—these are not features; they are the *essence* of the service. Ask: "Does this make the final card more thoughtful, more beautiful, and more complete?" If not, discard it. The system is a curator, not a toolset.
 
 ### 3. **Autonomous Action (The Empowered Orchestrator)**
 *   **Ethos:** For `isSpecialIntent` requests, the system is entrusted with executive authority. It is an intelligent agent, not a passive responder.
-*   **Manifestation:** Automatically execute the `search_restaurant` step and seamlessly merge its result into the calendar event. Trust the local LLM's re-classification and the "vibe" memory to make these decisions. Expand this autonomy to new, well-defined intents (e.g., "I need to be at the airport by 6 AM tomorrow"). Hesitation or over-reliance on user input for these cases is a betrayal of the user's trust and the system's purpose.
+*   **Manifestation:** Automatically execute the `search_restaurant`, `find_event`, or `get_directions` step and seamlessly merge its result into the calendar event or navigation card. Trust the local LLM's re-classification and the "vibe" memory to make these decisions. Expand this autonomy to new, well-defined intents (e.g., "I need to be at the airport by 6 AM tomorrow"). Hesitation or over-reliance on user input for these cases is a betrayal of the user's trust and the system's purpose.
 
 ### 4. **Respectful Boundaries (The Ethical Foundation)**
 *   **Ethos:** Autonomy is meaningless without absolute, non-negotiable respect for the user's privacy and control. The machine serves, it does not own.
@@ -40,20 +40,34 @@ This is not merely a feature set; it is our core operating principle. Every futu
 Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 *   **`geocode_location`:** Converts "Paris" into precise latitude/longitude.
 *   **`search_restaurant`:** Finds nearby restaurants based on cuisine, location, and ambiance (e.g., romantic). Uses Overpass API and caches results in Upstash Redis. **Incorporates "vibe memory"** to bias suggestions based on past preferences (e.g., "French" or "Italian").
-*   **`add_calendar_event`:** Creates a downloadable `.ics` file with the restaurant's details pre-populated, including a suggested wine pairing.
+*   **`find_event`:** Discovers local events (e.g., concerts, jazz clubs) using public APIs. Delivers a single card with event details and a "Learn More" link. Uses vibe memory to bias results (e.g., "jazz," "quiet"). Does not auto-add to calendar—requires explicit user confirmation via "Download (.ics)".
+*   **`get_directions`:** Generates turn-by-turn navigation to any location (restaurant, event, airport) with distance and duration. Returns a single card with an "Open in Maps" button. No calendar event is created, preserving user control.
+*   **`add_calendar_event`:** Creates a downloadable `.ics` file with the restaurant's, event's, or location's details pre-populated, including a suggested wine pairing if applicable.
 
 ### 3. **Seamless Calendar Integration**
-*   After a restaurant is found, a single, prominent button downloads a `.ics` file.
-*   The calendar event includes the restaurant's name, address, and a custom description (including a suggested wine pairing if applicable).
+*   After a restaurant, event, or location is found, a single, prominent button downloads a `.ics` file.
+*   The calendar event includes the name, address, and a custom description (including a suggested wine pairing if applicable).
 *   Uses your device's geolocation (with permission) to find places near you.
 
-### 4. **Comprehensive Auditing**
+### 4. **Contextual Whisper (Anticipatory Intelligence)**
+*   **Ethos:** The system anticipates unspoken needs to create a deeply personal experience.
+*   **Manifestation:** After successfully planning a special dinner, the system silently suggests, "Would you like me to find a nearby wine shop for a bottle to bring?" with a tiny "Yes" button. Clicking "Yes" immediately finds the wine shop and appends its details to the event description. This enhancement is offered without disrupting the user's flow and requires explicit, one-click confirmation. It is not a feature; it is the system anticipating a desire.
+
+### 5. **Intent Fusion (The Single, Unified Card)**
+*   **Ethos:** For complex intents involving multiple, sequential actions, the system synthesizes them into one flawless, cohesive outcome.
+*   **Manifestation:** When a request like "Plan a romantic dinner for tomorrow night at 8 PM, and then get me a taxi to the airport for my 7 AM flight" is made, the system executes both `search_restaurant` and `get_directions` steps, then delivers a **single, unified card**.
+    *   **Top:** "A perfect evening at Le Bistrot | 8:00 PM"
+    *   **Middle:** A subtle, elegant horizontal divider.
+    *   **Bottom:** "Airport Transfer: 5:00 AM | 1h 30m drive"
+*   The single "Download (.ics)" button generates a calendar file containing **both** events. This eliminates clutter and embodies "Elegant Synthesis" at its peak.
+
+### 6. **Comprehensive Auditing**
 *   **Immutable Logs:** Every interaction, from the initial prompt to the final outcome, is logged with a unique `audit_log_id`.
 *   **Full Context:** Logs capture the original intent, the generated `Plan`, every executed tool step, and the final outcome.
 *   **Debugging & Transparency:** Perfect for developers to debug issues and for users who demand to know exactly what happened.
 
-### 5. **Enterprise-Grade Reliability**
-*   **Circuit Breakers:** Tools like `search_restaurant` and `geocode_location` are wrapped in circuit breakers. If a service fails repeatedly, it's temporarily disabled to prevent cascading failures.
+### 7. **Enterprise-Grade Reliability**
+*   **Circuit Breakers:** Tools like `search_restaurant`, `geocode_location`, `find_event`, and `get_directions` are wrapped in circuit breakers. If a service fails repeatedly, it's temporarily disabled to prevent cascading failures.
 *   **Retry Logic:** Failed API calls are automatically retried with exponential backoff.
 *   **Rate Limiting:** Protects against abuse.
 *   **Graceful Fallback:** If the cloud LLM fails, the system falls back to a simplified, locally generated plan. The local LLM can also re-classify ambiguous intents for better routing.
@@ -68,7 +82,7 @@ Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 | **Local LLM** | [@mlc-ai/web-llm](https://github.com/mlc-ai/web-llm) | Runs the Phi-3.5 Mini Instruct model directly in the browser for local, low-latency inference. |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Utility-first CSS framework for rapid, responsive UI development. |
 | **Icons** | [Lucide React](https://lucide.dev/) | Beautiful, lightweight icons. |
-| **Caching** | [@upstash/redis](https://upstash.com/) | High-performance, distributed caching for restaurant results and vibe memory. |
+| **Caching** | [@upstash/redis](https://upstash.com/) | High-performance, distributed caching for restaurant results, event data, and vibe memory. |
 | **Validation** | [Zod](https://zod.dev/) | Runtime type validation for all API schemas and tool inputs. |
 | **Testing** | [Vitest](https://vitest.dev/) | Fast, Vite-powered unit and integration tests. |
 | **Date Parsing** | [chrono-node](https://github.com/wanasit/chrono) | Parses natural language dates ("tomorrow at 7pm"). |
@@ -109,7 +123,7 @@ intentionengine/
 │   │   ├── local-llm-engine.ts  # WebLLM engine wrapper for Phi-3.5 (core)
 │   │   ├── reliability.ts       # High-level withReliability middleware (core)
 │   │   ├── schema.ts            # Zod schemas for Plan, Step, and API requests (core)
-│   │   ├── tools.ts             # Core tools (search, calendar, geocode) with reliability wrappers (core)
+│   │   ├── tools.ts             # Core tools (search, calendar, geocode, event, directions) with reliability wrappers (core)
 │   │   └── utils/reliability.ts # Low-level Circuit Breaker & Retry logic (core)
 │   │
 │   └── tests/

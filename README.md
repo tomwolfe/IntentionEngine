@@ -66,6 +66,7 @@ Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 *   **Timeout Handling:** Requests are capped at a defined duration to ensure system responsiveness.
 *   **New:** The system now employs a silent, intelligent fallback. If *both* the primary and secondary cloud LLMs fail, it uses the local Phi-3.5 model to generate a concise, functional summary (e.g., "Your arrangements are ready."), ensuring the `.ics` file is always delivered, even if the whisper is less poetic.
 *   **New:** The system now silently uses a default location (e.g., London) when geocoding fails, preventing the user from ever seeing a "Location not found" error.
+*   **New:** Implemented a **Safety Mechanism for Silent Execution**. If a multi-step plan fails mid-execution, the system halts gracefully, provides a user-friendly notification, and captures a detailed "Execution Diagnostics" audit log for immediate troubleshooting, ensuring transparency without sacrificing the silent UI ethos.
 
 ## 🛠️ Tech Stack
 | Layer | Technology | Purpose |

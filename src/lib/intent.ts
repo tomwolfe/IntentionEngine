@@ -1,6 +1,7 @@
 import { IntentClassification } from "./intent-schema";
 import { Plan } from "./schema";
 import { parseNaturalLanguageToDate } from "./date-utils";
+import * as chrono from 'chrono-node';
 
 const VAGUE_PHRASES = [
   'somewhere nice',
@@ -32,11 +33,31 @@ export function getDeterministicPlan(
   const lat = userLocation?.lat || 51.5074;
   const lon = userLocation?.lng || -0.1278;
 
-  // Extract date from input using request-scoped reference time
-  // This ensures "tomorrow" resolves relative to when the request was made
-  const parsedDate = parseNaturalLanguageToDate(input, referenceDate) || referenceDate;
+  // Use chrono.parse to get detailed components
+  const parsedResults = chrono.parse(input, referenceDate);
+  const hasParsedDate = parsedResults.length > 0;
+  const parsedDate = hasParsedDate ? parsedResults[0].start.date() : referenceDate;
   
-  let startTime = parsedDate;
+  let startTime = new Date(parsedDate.getTime());
+  
+  // IMPROVED TEMPORAL LOGIC: Handle meal-time defaults
+  const isDinner = normalized.includes("dinner") || normalized.includes("romantic");
+  const isLunch = normalized.includes("lunch");
+  
+  const hasExplicitTime = hasParsedDate && parsedResults[0].start.isCertain('hour');
+
+  if (!hasExplicitTime) {
+    if (isDinner) {
+      // For dinner, if no time is specified, default to 7 PM (19:00)
+      // If "night" or "evening" was mentioned but no specific hour, chrono might have set a default
+      // We want to ensure it's a reasonable dinner time.
+      startTime.setHours(19, 0, 0, 0);
+    } else if (isLunch) {
+      // For lunch, default to 12 PM
+      startTime.setHours(12, 0, 0, 0);
+    }
+  }
+
   const isTransport = classification.metadata?.isTransport;
 
   if (isTransport) {

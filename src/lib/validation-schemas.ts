@@ -1,4 +1,13 @@
 import { z } from "zod";
+import { isValidISOTimestamp, isValidTimeRange } from "./date-utils";
+
+// ISO-8601 timestamp validator
+const isoTimestampSchema = z.string().refine(
+  (val) => isValidISOTimestamp(val),
+  {
+    message: "Must be a valid ISO-8601 timestamp (e.g., 2026-02-09T18:30:00.000Z)",
+  }
+);
 
 // Tool Parameter Schemas
 export const GeocodeLocationSchema = z.object({
@@ -20,15 +29,25 @@ export const SearchRestaurantSchema = z.object({
   message: "Either coordinates (lat, lon) or location must be provided",
 });
 
+/**
+ * Calendar Event Schema with strict ISO-8601 timestamp validation
+ * Natural language dates must be normalized BEFORE reaching this schema
+ */
 export const AddCalendarEventSchema = z.object({
   title: z.string().min(1).max(200).trim(),
-  start_time: z.string().min(1).trim(),
-  end_time: z.string().min(1).trim(),
+  start_time: isoTimestampSchema,
+  end_time: isoTimestampSchema,
   location: z.string().max(500).trim().optional(),
   restaurant_name: z.string().max(200).trim().optional(),
   restaurant_address: z.string().max(500).trim().optional(),
   description: z.string().max(1000).trim().optional(),
-});
+}).refine(
+  (data) => isValidTimeRange(data.start_time, data.end_time),
+  {
+    message: "End time must be after start time",
+    path: ["end_time"],
+  }
+);
 
 // API Request Schemas
 export const IntentRequestSchema = z.object({
@@ -51,10 +70,23 @@ export const AuditRequestSchema = z.object({
   final_outcome: z.any().optional(), // Can be string or object
 });
 
+/**
+ * Download ICS Schema - only accepts absolute ISO timestamps
+ * Natural language dates like "tomorrow" are rejected at the API boundary
+ */
 export const DownloadIcsSchema = z.object({
   title: z.string().default('Event'),
-  start: z.string().min(1),
-  end: z.string().optional().nullable(),
+  start: isoTimestampSchema,
+  end: isoTimestampSchema.optional().nullable(),
   location: z.string().optional().default(''),
   description: z.string().optional().default(''),
-});
+}).refine(
+  (data) => {
+    if (!data.end) return true; // End is optional, defaults to start + 1 hour
+    return isValidTimeRange(data.start, data.end);
+  },
+  {
+    message: "End time must be after start time",
+    path: ["end"],
+  }
+);

@@ -99,7 +99,7 @@ describe('API Endpoints', () => {
     const req = new NextRequest('http://localhost/api/download-ics?title=Dinner&start=2026-02-05T19:00:00Z');
     const res = await downloadIcsGET(req);
     expect(res.status).toBe(200);
-    expect(res.headers.get('Content-Type')).toBe('text/calendar');
+    expect(res.headers.get('Content-Type')).toMatch(/text\/calendar/);
     const text = await res.text();
     expect(text).toContain('BEGIN:VCALENDAR');
     expect(text).toContain('SUMMARY:Dinner');

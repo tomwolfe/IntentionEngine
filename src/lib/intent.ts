@@ -1,6 +1,6 @@
 import { IntentClassification } from "./intent-schema";
 import { Plan } from "./schema";
-import * as chrono from "chrono-node";
+import { parseNaturalLanguageToDate } from "./date-utils";
 
 const VAGUE_PHRASES = [
   'somewhere nice',
@@ -17,19 +17,24 @@ const VAGUE_PHRASES = [
 /**
  * Deterministically generates the muscle of the plan (ordered_steps).
  * The LLM will later provide the summary (the whisper).
+ * 
+ * TEMPORAL DETERMINISM: All dates are normalized to ISO-8601 timestamps
+ * at the plan boundary using a request-scoped reference time.
  */
 export function getDeterministicPlan(
   classification: IntentClassification,
   input: string,
   userLocation?: { lat: number; lng: number } | null,
-  dnaCuisine?: string
+  dnaCuisine?: string,
+  referenceDate: Date = new Date()
 ): Partial<Plan> {
   const normalized = input.toLowerCase();
   const lat = userLocation?.lat || 51.5074;
   const lon = userLocation?.lng || -0.1278;
 
-  // Extract date from input or default to today
-  const parsedDate = chrono.parseDate(input) || new Date();
+  // Extract date from input using request-scoped reference time
+  // This ensures "tomorrow" resolves relative to when the request was made
+  const parsedDate = parseNaturalLanguageToDate(input, referenceDate) || referenceDate;
   
   let startTime = parsedDate;
   const isTransport = classification.metadata?.isTransport;

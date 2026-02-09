@@ -2,8 +2,12 @@ import { Plan, PlanSchema } from "./schema";
 import { env } from "./config";
 import { get_weather_forecast } from "./tools";
 import { classifyIntent, getDeterministicPlan } from "./intent";
-import * as chrono from "chrono-node";
+import { parseNaturalLanguageToDate } from "./date-utils";
 
+/**
+ * Generates a plan with temporal determinism.
+ * All dates are normalized using a request-scoped reference time.
+ */
 export async function generatePlan(
   intent: string, 
   userLocation?: { lat: number; lng: number } | null,
@@ -13,14 +17,18 @@ export async function generatePlan(
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
 
+  // REQUEST-SCOPED REFERENCE TIME: Captured at request start
+  const referenceDate = new Date();
+
   // 1. DETERMINISTIC MUSCLE: Get the plan structure from code, not LLM.
   const classification = await classifyIntent(intent);
-  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine);
+  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine, referenceDate);
 
   // 2. CONTEXT GATHERING: Fetch weather and use DNA for the whisper.
   let weatherContext = "";
   try {
-    const parsedDate = chrono.parseDate(intent) || new Date();
+    // Use the same reference date for weather context consistency
+    const parsedDate = parseNaturalLanguageToDate(intent, referenceDate) || referenceDate;
     const dateStr = parsedDate.toISOString().split('T')[0];
     
     let weatherLocation = "London";

@@ -3,7 +3,7 @@ import { cache, CACHE_TTLS } from "./cache";
 import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema, WeatherForecastSchema } from "./validation-schemas";
 import { withCircuitBreaker } from "./reliability";
 import { withRetry } from "./utils/reliability";
-import * as chrono from "chrono-node";
+import { parseNaturalLanguageToDate, isValidISOTimestamp, isValidTimeRange } from "./date-utils";
 
 async function fetchWithRetry(url: string, options: RequestInit, service: string): Promise<Response> {
   return await withCircuitBreaker(service, async () => {
@@ -109,8 +109,9 @@ export async function get_weather_forecast(params: any) {
   console.log(`Fetching weather forecast for ${location} on ${date}...`);
 
   try {
-    // 1. Date Parsing
-    const parsedDate = chrono.parseDate(date);
+    // 1. Date Parsing with request-scoped reference time
+    const referenceDate = new Date();
+    const parsedDate = parseNaturalLanguageToDate(date, referenceDate);
     if (!parsedDate) {
       return { success: false, error: `Could not parse date: ${date}` };
     }
@@ -325,16 +326,38 @@ export async function search_restaurant(params: any) {
   }
 }
 
+/**
+ * Adds a calendar event with strict temporal validation.
+ * All timestamps must be valid ISO-8601 strings with end > start.
+ * Natural language dates must be normalized BEFORE calling this function.
+ */
 export async function add_calendar_event(params: any) {
   return await withCircuitBreaker('calendar', async () => {
     return await withRetry(async () => {
+      // Validate schema first (includes ISO format and end > start checks)
       const validated = AddCalendarEventSchema.safeParse(params);
       if (!validated.success) {
+        console.error(`[AUDIT] Calendar event validation failed:`, validated.error.format());
         throw new Error(`Invalid parameters: ${JSON.stringify(validated.error.format())}`);
       }
+      
       const { title, start_time, end_time, location, restaurant_name, restaurant_address, description: providedDescription } = validated.data;
 
-      console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
+      // Double-check ISO format (defense in depth)
+      if (!isValidISOTimestamp(start_time) || !isValidISOTimestamp(end_time)) {
+        const error = `[AUDIT] Non-ISO timestamp detected: start=${start_time}, end=${end_time}`;
+        console.error(error);
+        throw new Error(error);
+      }
+
+      // Double-check time range (defense in depth)
+      if (!isValidTimeRange(start_time, end_time)) {
+        const error = `[AUDIT] Invalid time range: end must be after start`;
+        console.error(error);
+        throw new Error(error);
+      }
+
+      console.log(`[AUDIT] Adding calendar event: ${title} from ${start_time} to ${end_time}`);
       
       let description = providedDescription || "";
       if (restaurant_name || restaurant_address) {

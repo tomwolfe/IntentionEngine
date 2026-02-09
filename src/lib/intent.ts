@@ -1,6 +1,4 @@
 import { IntentClassification } from "./intent-schema";
-import { cache } from "./cache";
-import { VIBE_MEMORY_KEY } from "./tools";
 import { Plan } from "./schema";
 import * as chrono from "chrono-node";
 
@@ -23,7 +21,8 @@ const VAGUE_PHRASES = [
 export function getDeterministicPlan(
   classification: IntentClassification,
   input: string,
-  userLocation?: { lat: number; lng: number } | null
+  userLocation?: { lat: number; lng: number } | null,
+  dnaCuisine?: string
 ): Partial<Plan> {
   const normalized = input.toLowerCase();
   const lat = userLocation?.lat || 51.5074;
@@ -40,7 +39,10 @@ export function getDeterministicPlan(
   // Simple cuisine extraction
   const CUISINE_LIST = ['italian', 'french', 'japanese', 'chinese', 'mexican', 'indian', 'spanish', 'thai', 'sushi', 'pizza', 'steak', 'seafood', 'burger', 'tapas', 'bistro'];
   const cuisineMatch = CUISINE_LIST.find(c => normalized.includes(c));
-  const cuisine = cuisineMatch || "any";
+  
+  // Vibe Bias: Use dnaCuisine for vague requests if no explicit cuisine is mentioned
+  const isVague = VAGUE_PHRASES.some(phrase => normalized.includes(phrase));
+  const cuisine = cuisineMatch || (isVague && dnaCuisine ? dnaCuisine : "any");
 
   if (classification.type === "TOOL_SEARCH") {
     return {
@@ -115,18 +117,15 @@ export function getDeterministicPlan(
 export async function classifyIntent(input: string): Promise<IntentClassification> {
   const normalized = input.toLowerCase().trim().replace(/[.,!?;:]/g, '');
 
-  // Check for vague requests with Vibe Memory bias
+  // Check for vague requests
   const isVagueRequest = VAGUE_PHRASES.some(phrase => normalized.includes(phrase));
   if (isVagueRequest) {
-    const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
-    if (vibeMemory && vibeMemory.length > 0) {
-      return {
-        type: "COMPLEX_PLAN", // Upgrade to complex plan to include calendar
-        confidence: 0.95,
-        reason: `Vague request with strong vibe memory: ${vibeMemory[0]}`,
-        isSpecialIntent: true // Trigger the magic
-      };
-    }
+    return {
+      type: "COMPLEX_PLAN", // Upgrade to complex plan for seamless orchestration
+      confidence: 0.9,
+      reason: "Vague request, triggering autonomous orchestration",
+      isSpecialIntent: true
+    };
   }
 
   // High-confidence special patterns

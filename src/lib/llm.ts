@@ -7,8 +7,7 @@ import * as chrono from "chrono-node";
 export async function generatePlan(
   intent: string, 
   userLocation?: { lat: number; lng: number } | null,
-  vibeMemory?: string[] | null,
-  vibePreferences?: Record<string, string> | null
+  dnaCuisine?: string
 ): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
@@ -16,9 +15,9 @@ export async function generatePlan(
 
   // 1. DETERMINISTIC MUSCLE: Get the plan structure from code, not LLM.
   const classification = await classifyIntent(intent);
-  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation);
+  const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine);
 
-  // 2. CONTEXT GATHERING: Fetch weather and use vibe for the whisper.
+  // 2. CONTEXT GATHERING: Fetch weather and use DNA for the whisper.
   let weatherContext = "";
   try {
     const parsedDate = chrono.parseDate(intent) || new Date();
@@ -37,8 +36,8 @@ export async function generatePlan(
     console.warn("Silent weather context fetch failed", e);
   }
 
-  const vibeContext = vibePreferences && Object.keys(vibePreferences).length > 0
-    ? `User Preferences: ${Object.entries(vibePreferences).map(([k, v]) => `${k} ${v}`).join(", ")}.`
+  const dnaContext = dnaCuisine 
+    ? `The user has recently expressed a preference for ${dnaCuisine} cuisine.`
     : "";
 
   if (!apiKey) {
@@ -59,7 +58,7 @@ export async function generatePlan(
   It must feel like the user's own serene realization of a perfect future, not an AI's report.
   
   Context:
-  ${vibeContext}
+  ${dnaContext}
   ${weatherContext}
   
   Describe the upcoming experience as a completed, elegant reality.`;

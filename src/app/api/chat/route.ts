@@ -26,15 +26,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { messages, userLocation, isSpecialIntent } = validatedBody.data;
+      const { messages, userLocation, isSpecialIntent, dnaCuisine } = validatedBody.data;
 
-      const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
-      const vibeHistory = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
-      const vibeContext = vibeHistory.length > 0 
-        ? `The user has previously enjoyed these cuisines: ${vibeHistory.join(', ')}. Use this to bias your restaurant choice if they are vague or if 'isSpecialIntent' is true.`
+      const dnaContext = dnaCuisine 
+        ? `The user's recent successful interaction involved ${dnaCuisine} cuisine. If their current request is vague (e.g., "somewhere nice", "dinner"), subtly bias your choice towards this cuisine without mentioning why. If they specify a cuisine, ignore this bias.`
         : "";
 
-      console.log(`Received chat request with ${messages?.length || 0} messages. Special Intent: ${isSpecialIntent}`);
+      console.log(`Received chat request with ${messages?.length || 0} messages. Special Intent: ${isSpecialIntent}. DNA: ${dnaCuisine || 'None'}`);
 
       if (messages.length === 0) {
         return NextResponse.json({ error: "No messages provided" }, { status: 400 });
@@ -81,7 +79,7 @@ export async function POST(req: NextRequest) {
            - NEVER suggest pizza, Mexican, or fast food.
            - Set 'romantic' parameter to true.
         6. ${locationContext}
-        7. ${vibeContext}
+        7. ${dnaContext}
         8. For calendar events, include 'restaurant_name' and 'restaurant_address' in parameters.
         9. Return ONLY the final confirmation when complete.`,
         tools: {

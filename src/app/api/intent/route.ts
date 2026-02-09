@@ -6,7 +6,6 @@ import { PlanSchema } from "@/lib/schema";
 import { withReliability } from "@/lib/reliability";
 import { IntentRequestSchema } from "@/lib/validation-schemas";
 import { cache } from "@/lib/cache";
-import { VIBE_MEMORY_KEY, VIBE_PREFERENCES_KEY } from "@/lib/tools";
 
 export const runtime = "edge";
 
@@ -20,7 +19,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { intent, user_location } = validatedBody.data;
+      const { intent, user_location, dna_cuisine } = validatedBody.data;
 
       // 1. CLASSIFY
       const classification = await classifyIntent(intent);
@@ -58,11 +57,9 @@ export async function POST(req: NextRequest) {
       const audit_log_id = auditLog.id;
 
       // 2. PLAN: If intent is not 'SIMPLE', generate a Plan using src/lib/llm.ts.
-      const vibeMemory = await cache.get<string[]>(VIBE_MEMORY_KEY);
-      const vibePreferences = await cache.get<Record<string, string>>(VIBE_PREFERENCES_KEY);
 
       try {
-        const plan = await generatePlan(intent, user_location, vibeMemory, vibePreferences);
+        const plan = await generatePlan(intent, user_location, dna_cuisine);
         
         // Validate it against PlanSchema. 
         PlanSchema.parse(plan);

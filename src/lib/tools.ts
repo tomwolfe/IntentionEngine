@@ -19,25 +19,11 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
   });
 }
 
-// Vibe Memory is now handled via the central Redis cache
-// Steve Jobs: "Respectful Boundaries" - Memory should feel like a shared intuition, never a personal dossier.
-export const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
-export const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
+// Intent-DNA is session-scoped and ephemeral.
+// Steve Jobs: "Silent Whisper" - The system should feel like a shared intuition, never a personal dossier.
 
-export async function getVibePreferences() {
-  return await cache.get<Record<string, string>>(VIBE_PREFERENCES_KEY) || {
-    "Sarah": "prefers dry reds, hates loud music",
-    "Atmosphere": "intimate, low lighting"
-  };
-}
-
-function getSuggestedWine(cuisine: string, preferences: Record<string, string>): string {
+function getSuggestedWine(cuisine: string): string {
   const c = cuisine.toLowerCase();
-  const p = Object.values(preferences).join(" ").toLowerCase();
-  
-  if (p.includes("dry red") || p.includes("cabernet") || p.includes("merlot")) {
-    return "Vintage Cabernet Sauvignon";
-  }
   
   if (c.includes('italian') || c.includes('pasta')) return "Pinot Noir";
   if (c.includes('french') || c.includes('steak')) return "Cabernet Sauvignon";
@@ -174,33 +160,11 @@ export async function search_restaurant(params: any) {
   
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
   const isSpecialIntent = (params as any).isSpecialIntent;
-  const preferences = await getVibePreferences();
-  const prefValues = Object.values(preferences).join(" ").toLowerCase();
 
   if (isSpecialIntent) {
     romantic = true;
   }
 
-  // Vibe Memory Bias: If it's a special/romantic request and cuisine is generic or missing, use memory
-  const GENERIC_CUISINES = ['dinner', 'lunch', 'breakfast', 'food', 'eat', 'restaurant', 'meal', 'any'];
-  
-  if (romantic) {
-    const cuisineLower = (cuisine || '').toLowerCase().trim();
-    const isGeneric = !cuisine || GENERIC_CUISINES.includes(cuisineLower);
-    
-    if (isGeneric) {
-      const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
-      const originalCuisine = cuisine;
-      if (history.length > 0) {
-        cuisine = history[0];
-        console.log(`Vibe Memory Bias: Overriding generic '${originalCuisine || 'undefined'}' with '${cuisine}' from memory`);
-      } else {
-        cuisine = "French"; // Default romantic fallback
-        console.log(`Vibe Memory Bias: Overriding generic '${originalCuisine || 'undefined'}' with default 'French'`);
-      }
-    }
-  }
-  
   if ((lat === undefined || lon === undefined) && location) {
     const geo = await geocode_location({ location });
     if (geo.success && geo.result) {
@@ -263,7 +227,6 @@ export async function search_restaurant(params: any) {
 
     const cuisineRegex = cuisine ? new RegExp(cuisine, 'i') : null;
     const romanticKeywords = ['romantic', 'fine dining', 'candlelight', 'intimate', 'french', 'italian', 'wine bar'];
-    const quietKeywords = ['quiet', 'peaceful', 'intimate', 'cozy', 'small', 'boutique'];
 
     elements.sort((a: any, b: any) => {
       let aScore = 0;
@@ -281,21 +244,13 @@ export async function search_restaurant(params: any) {
         if (cuisineRegex.test(bCuisine) || cuisineRegex.test(bName)) bScore += 10;
       }
 
-      if (romantic || prefValues.includes("intimate")) {
+      if (romantic) {
         romanticKeywords.forEach(kw => {
           if (aCuisine.includes(kw) || aName.includes(kw) || aDescription.includes(kw)) aScore += 5;
           if (bCuisine.includes(kw) || bName.includes(kw) || bDescription.includes(kw)) bScore += 5;
         });
         if (aCuisine.includes('french') || aCuisine.includes('italian')) aScore += 3;
         if (bCuisine.includes('french') || bCuisine.includes('italian')) bScore += 3;
-      }
-
-      // Vibe Bias: Intuition-based scoring for "quiet" and "intimate"
-      if (prefValues.includes("hates loud music") || prefValues.includes("quiet")) {
-        quietKeywords.forEach(kw => {
-          if (aCuisine.includes(kw) || aName.includes(kw) || aDescription.includes(kw)) aScore += 8;
-          if (bCuisine.includes(kw) || bName.includes(kw) || bDescription.includes(kw)) bScore += 8;
-        });
       }
 
       return bScore - aScore;
@@ -333,7 +288,7 @@ export async function search_restaurant(params: any) {
       if (!addr) addr = "Address not available";
 
       const restaurantCuisine = el.tags.cuisine || cuisine || "Restaurant";
-      const wine = (romantic || isSpecialIntent) ? getSuggestedWine(restaurantCuisine, preferences) : undefined;
+      const wine = (romantic || isSpecialIntent) ? getSuggestedWine(restaurantCuisine) : undefined;
       
       const rawResult = {
         name,
@@ -342,7 +297,8 @@ export async function search_restaurant(params: any) {
           lat: parseFloat(el.lat || el.center?.lat),
           lon: parseFloat(el.lon || el.center?.lon)
         },
-        suggested_wine: wine
+        suggested_wine: wine,
+        cuisine: el.tags.cuisine || cuisine // Added to pass back for intent-DNA
       };
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
@@ -352,18 +308,6 @@ export async function search_restaurant(params: any) {
     const finalResults = results.filter(Boolean).slice(0, 5) as RestaurantResult[];
 
     if (finalResults.length > 0) {
-      // Update Vibe Memory BEFORE caching results
-      // Extract cuisine from the top result or fall back to the search cuisine parameter
-      const topCuisine = elements?.[0]?.tags?.cuisine || cuisine;
-      
-      if (topCuisine && topCuisine.toLowerCase().trim() !== 'any') {
-        const history = await cache.get<string[]>(VIBE_MEMORY_KEY) || [];
-        // Add new cuisine to front, remove duplicates, cap at 3
-        const newHistory = [topCuisine, ...history.filter(c => c !== topCuisine)].slice(0, 3);
-        await cache.set(VIBE_MEMORY_KEY, newHistory, 86400 * 30); // 30 days TTL
-        console.log(`Vibe Memory updated: ${JSON.stringify(newHistory)}`);
-      }
-
       await cache.set(cacheKey, finalResults, CACHE_TTLS.RESTAURANTS);
       
       if (isSpecialIntent && finalResults[0].suggested_wine) {

@@ -8,6 +8,7 @@ export const RestaurantResultSchema = z.object({
     lon: z.number(),
   }),
   suggested_wine: z.string().optional(),
+  cuisine: z.string().optional(),
 });
 
 export type RestaurantResult = z.infer<typeof RestaurantResultSchema>;
@@ -53,6 +54,7 @@ export const ChatRequestSchema = z.object({
     lng: z.number().min(-180).max(180),
   }).nullable().optional(),
   isSpecialIntent: z.boolean().optional(),
+  dnaCuisine: z.string().optional(),
 });
 
 export const IntentResponseSchema = z.object({

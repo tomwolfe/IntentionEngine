@@ -110,6 +110,8 @@ export default function Home() {
           navigator.vibrate(50);
         }
 
+        const dnaCuisine = typeof window !== 'undefined' ? sessionStorage.getItem('intent-dna-cuisine') || undefined : undefined;
+
         let classification = await classifyIntent(currentInput);
         
         // Silent Hybrid Classification
@@ -162,7 +164,7 @@ export default function Home() {
           // For v2.0, we want to capture audit_log_id and plan
           const response: any = await sendMessage(
             { text: currentInput }, 
-            { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent } }
+            { body: { userLocation, isSpecialIntent: finalClassification.isSpecialIntent, dnaCuisine } }
           );
   
           if (response?.audit_log_id) {
@@ -326,10 +328,18 @@ export default function Home() {
       const downloadUrl = calendarResult?.download_url;
       if (!downloadUrl) return null;
 
+      const handleIcsClick = () => {
+        const restaurant = (searchPart as any)?.output?.result?.[0];
+        if (restaurant?.cuisine) {
+          sessionStorage.setItem('intent-dna-cuisine', restaurant.cuisine);
+        }
+      };
+
       return (
         <div className="pt-4 animate-in zoom-in-95 duration-700">
           <a 
             href={downloadUrl}
+            onClick={handleIcsClick}
             className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 hover:shadow-black/10 group"
           >
             <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
@@ -356,6 +366,12 @@ export default function Home() {
         }
       }
 
+      const handleIcsClick = () => {
+        if ((restaurant as any)?.cuisine) {
+          sessionStorage.setItem('intent-dna-cuisine', (restaurant as any).cuisine);
+        }
+      };
+
       return (
         <div className="space-y-4 pt-4">
           <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
@@ -378,6 +394,7 @@ export default function Home() {
                 <div className="h-px bg-slate-100 w-full" />
                 <a 
                   href={downloadUrl}
+                  onClick={handleIcsClick}
                   className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
                 >
                   <Calendar size={28} className="group-hover:rotate-6 transition-transform" />

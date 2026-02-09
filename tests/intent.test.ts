@@ -47,6 +47,15 @@ describe('Intent Classification', () => {
     expect((await classifyIntent('well hello there')).confidence).toBe(0.9);
   });
 
+  it('should classify vague requests as COMPLEX_PLAN and special intent', async () => {
+    const result = await classifyIntent('find somewhere nice');
+    expect(result.type).toBe('COMPLEX_PLAN');
+    expect(result.isSpecialIntent).toBe(true);
+    
+    expect((await classifyIntent('somewhere good')).type).toBe('COMPLEX_PLAN');
+    expect((await classifyIntent('a good spot')).type).toBe('COMPLEX_PLAN');
+  });
+
   it('should handle mixed case and whitespace', async () => {
     expect((await classifyIntent('  THANKS  ')).type).toBe('SIMPLE');
     expect((await classifyIntent('Hi!')).type).toBe('SIMPLE');

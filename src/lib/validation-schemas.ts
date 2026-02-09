@@ -37,6 +37,7 @@ export const IntentRequestSchema = z.object({
     lat: z.number().min(-90).max(90),
     lng: z.number().min(-180).max(180),
   }).nullable().optional(),
+  dna_cuisine: z.string().optional(),
 });
 
 export const ExecuteRequestSchema = z.object({

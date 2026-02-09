@@ -318,6 +318,20 @@ export default function Home() {
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
     
+    // Debug logging for temporal issues
+    if (calendarPart) {
+      const startTime = (calendarPart as any)?.input?.start_time;
+      console.log('[DEBUG] Calendar event time:', startTime);
+      if (startTime) {
+        const eventDate = new Date(startTime);
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        if (eventDate < oneDayAgo) {
+          console.error('[ERROR] Event date is in the past:', startTime, 'Today is:', now.toISOString());
+        }
+      }
+    }
+    
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
     const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
@@ -329,7 +343,26 @@ export default function Home() {
       };
       const calendarResult = (calendarPart as any)?.output?.result;
       const startTime = (calendarPart as any)?.input?.start_time;
-      const formattedTime = startTime ? new Date(startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+      
+      // Validate and display event time
+      let formattedTime: string | null = null;
+      if (startTime) {
+        try {
+          const eventDate = new Date(startTime);
+          const now = new Date();
+          const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          
+          if (eventDate < oneDayAgo) {
+            // Date is in the past - show error instead
+            formattedTime = "Invalid Date";
+            console.error('[AUDIT] Displaying Invalid Date for:', startTime);
+          } else {
+            formattedTime = eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          }
+        } catch (e) {
+          formattedTime = null;
+        }
+      }
       
       let downloadUrl = calendarResult?.download_url;
       if (searchPart && downloadUrl) {

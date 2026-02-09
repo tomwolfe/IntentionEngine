@@ -20,6 +20,10 @@ export async function POST(req: NextRequest) {
       }
 
       const { intent, user_location, dna_cuisine } = validatedBody.data;
+      
+      // Capture request time for temporal determinism
+      const requestTime = new Date();
+      console.log(`[AUDIT] Intent API called at ${requestTime.toISOString()} for intent: "${intent.substring(0, 50)}..."`);
 
       // 1. CLASSIFY
       const classification = await classifyIntent(intent);

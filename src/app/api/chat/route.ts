@@ -64,10 +64,25 @@ export async function POST(req: NextRequest) {
       const modelName = env.LLM_MODEL;
       console.log(`Using model: ${modelName} with base URL: ${env.LLM_BASE_URL}`);
 
+      // Get current date for temporal context - THIS IS CRITICAL for correct date parsing
+      const now = new Date();
+      const currentDateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const currentDateTimeStr = now.toISOString();
+      
+      console.log(`[AUDIT] Request received at ${currentDateTimeStr}. User said: ${messages[messages.length - 1]?.content?.substring(0, 100)}`);
+
       const result = streamText({
         model: openai.chat(modelName),
         messages: coreMessages,
         system: `You are an Executive Orchestrator. Convert user intent into action.
+        
+        TEMPORAL CONTEXT (CRITICAL):
+        - TODAY'S DATE: ${currentDateStr}
+        - CURRENT TIMESTAMP: ${currentDateTimeStr}
+        - When user says "tomorrow", calculate from TODAY'S DATE (${currentDateStr})
+        - When user says "tonight", use TODAY'S DATE (${currentDateStr})
+        - ALL calendar events MUST use absolute ISO-8601 timestamps (e.g., "2026-02-10T19:00:00Z")
+        - NEVER use relative dates like "tomorrow" or "next week" in parameters
         
         CRITICAL RULES:
         1. ${specialContext}
@@ -100,10 +115,26 @@ export async function POST(req: NextRequest) {
             },
           }),
           add_calendar_event: tool({
-            description: "Add an event to the user's calendar.",
+            description: "Add an event to the user's calendar. CRITICAL: Use absolute ISO-8601 timestamps only (e.g., '2026-02-10T19:00:00Z'). Never use relative dates like 'tomorrow'.",
             inputSchema: AddCalendarEventSchema,
             execute: async (params: any) => {
-              console.log("Executing add_calendar_event", params);
+              console.log("[AUDIT] Executing add_calendar_event", {
+                title: params.title,
+                start_time: params.start_time,
+                end_time: params.end_time,
+                location: params.location
+              });
+              
+              // Validate dates are not in the past (allow 1 day grace period for timezone issues)
+              const startDate = new Date(params.start_time);
+              const now = new Date();
+              const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+              
+              if (startDate < oneDayAgo) {
+                console.error(`[AUDIT] REJECTED: Date is in the past. Received ${params.start_time}, current time is ${now.toISOString()}`);
+                throw new Error(`Invalid date: The event start time (${params.start_time}) is in the past. Today is ${now.toISOString().split('T')[0]}.`);
+              }
+              
               return await add_calendar_event(params);
             },
           }),

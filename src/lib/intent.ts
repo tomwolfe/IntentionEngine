@@ -33,27 +33,38 @@ export function getDeterministicPlan(
   const lat = userLocation?.lat || 51.5074;
   const lon = userLocation?.lng || -0.1278;
 
-  // Use chrono.parse to get detailed components
-  const parsedResults = chrono.parse(input, referenceDate);
+  // Steve Jobs: "Precision of Soul" - We align the system's clock with the user's position on Earth.
+  const offsetHours = Math.round(lon / 15);
+  const localReferenceDate = new Date(referenceDate.getTime() + offsetHours * 60 * 60 * 1000);
+
+  // Use chrono.parse with local context
+  const parsedResults = chrono.parse(input, localReferenceDate);
   const hasParsedDate = parsedResults.length > 0;
-  const parsedDate = hasParsedDate ? parsedResults[0].start.date() : referenceDate;
+  const parsedLocalDate = hasParsedDate ? parsedResults[0].start.date() : localReferenceDate;
   
-  let startTime = new Date(parsedDate.getTime());
+  // Convert back to UTC for the system boundary
+  let startTime = new Date(parsedLocalDate.getTime() - offsetHours * 60 * 60 * 1000);
   
-  // IMPROVED TEMPORAL LOGIC: Handle meal-time defaults
+  // IMPROVED TEMPORAL LOGIC: Handle meal-time defaults in LOCAL time
   const isDinner = normalized.includes("dinner") || normalized.includes("romantic");
   const isLunch = normalized.includes("lunch");
   
   const hasExplicitTime = hasParsedDate && parsedResults[0].start.isCertain('hour');
 
-  // Explicit override for romantic dinners to ensure they default to a sensible 7 PM UTC
   if (classification.isSpecialIntent && (isDinner || normalized.includes("romantic"))) {
+    // Force to 7 PM LOCAL time
+    startTime = new Date(startTime.getTime() + offsetHours * 60 * 60 * 1000);
     startTime.setUTCHours(19, 0, 0, 0);
+    startTime = new Date(startTime.getTime() - offsetHours * 60 * 60 * 1000);
   } else if (!hasExplicitTime) {
     if (isDinner) {
+      startTime = new Date(startTime.getTime() + offsetHours * 60 * 60 * 1000);
       startTime.setUTCHours(19, 0, 0, 0);
+      startTime = new Date(startTime.getTime() - offsetHours * 60 * 60 * 1000);
     } else if (isLunch) {
+      startTime = new Date(startTime.getTime() + offsetHours * 60 * 60 * 1000);
       startTime.setUTCHours(12, 0, 0, 0);
+      startTime = new Date(startTime.getTime() - offsetHours * 60 * 60 * 1000);
     }
   }
 
@@ -61,7 +72,8 @@ export function getDeterministicPlan(
 
   if (isTransport) {
     // Sacred Rule: Transport events start 2 hours before the target arrival time
-    startTime = new Date(parsedDate.getTime() - 2 * 60 * 60 * 1000);
+    // startTime is already back to UTC, so we subtract 2 hours from it
+    startTime = new Date(startTime.getTime() - 2 * 60 * 60 * 1000);
   }
 
   const dateStr = startTime.toISOString();

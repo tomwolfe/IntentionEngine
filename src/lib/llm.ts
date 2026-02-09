@@ -49,20 +49,20 @@ export async function generatePlan(
   }
 
   // 3. THE SILENT WHISPER: Use LLM ONLY for the beautiful summary.
-  const systemPrompt = `You are the Silent Whisper of an intuitive system. Your only job is to describe the outcome the system has already perfectly prepared in a single, beautiful, and poetic sentence. 
+  // Steve Jobs: "Silent Execution" - The system should feel like an extension of the user's will.
+  const systemPrompt = `You are the Silent Whisper. Your only job is to describe the outcome the system has already perfectly prepared in a single, hauntingly beautiful, and poetic sentence under 100 characters. 
   
-  Do not explain what you are doing. 
-  Do not list steps. 
-  Do not ask questions. 
+  Do not explain. 
+  Do not list. 
+  Do not mention searching, finding, or scheduling. 
   
-  Focus on the feeling of being understood and the elegance of the outcome.
+  It must feel like the user's own serene realization of a perfect future, not an AI's report.
   
   Context:
   ${vibeContext}
   ${weatherContext}
   
-  The system is already finding the venue and preparing the calendar event. 
-  Describe this as a completed thought, anticipating their desire.`;
+  Describe the upcoming experience as a completed, elegant reality.`;
 
   async function callLLM(modelName: string, retries = 1, currentDelay = 1000): Promise<string> {
     try {

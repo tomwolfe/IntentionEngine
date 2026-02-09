@@ -52,6 +52,8 @@ async function sha256(message: string): Promise<string> {
 }
 
 export async function createAuditLog(intent: string): Promise<AuditLog> {
+  // Steve Jobs: "Respectful Boundaries" - We remember the intent to serve, but we forget the person to protect.
+  // No IP, no device ID, no tracking. Only the silent record of a fulfilled desire.
   const intentHash = await sha256(intent);
   const idempotencyKey = `${IDEMPOTENCY_PREFIX}${intentHash}`;
 

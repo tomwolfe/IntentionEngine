@@ -20,6 +20,7 @@ async function fetchWithRetry(url: string, options: RequestInit, service: string
 }
 
 // Vibe Memory is now handled via the central Redis cache
+// Steve Jobs: "Respectful Boundaries" - Memory should feel like a shared intuition, never a personal dossier.
 export const VIBE_MEMORY_KEY = "vibe_memory:special_cuisines";
 export const VIBE_PREFERENCES_KEY = "vibe_memory:user_preferences";
 

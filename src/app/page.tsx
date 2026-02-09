@@ -249,6 +249,7 @@ export default function Home() {
           }
   
           // Propagation: Ensure restaurant details flow into the calendar part for UI/ICS consistency
+          // Steve Jobs: "Autonomous Action" - The system anticipates and connects every detail without being asked.
           const searchPart = toolResults.find(p => p.toolName === 'search_restaurant');
           const calendarPart = toolResults.find(p => p.toolName === 'add_calendar_event');
 
@@ -259,6 +260,8 @@ export default function Home() {
                 ...calendarPart.input,
                 title: restaurant.name,
                 location: restaurant.address,
+                restaurant_name: restaurant.name,
+                restaurant_address: restaurant.address
               };
             }
           }
@@ -324,13 +327,13 @@ export default function Home() {
       if (!downloadUrl) return null;
 
       return (
-        <div className="pt-4">
+        <div className="pt-4 animate-in zoom-in-95 duration-700">
           <a 
             href={downloadUrl}
-            className="flex items-center justify-center gap-3 w-full py-5 bg-slate-900 text-white rounded-2xl font-bold text-lg hover:bg-slate-800 transition-all active:scale-[0.97] shadow-xl shadow-slate-200"
+            className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 hover:shadow-black/10 group"
           >
-            <Calendar size={24} />
-            Download (.ics)
+            <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
+            Finalize & Download (.ics)
           </a>
         </div>
       );
@@ -375,7 +378,7 @@ export default function Home() {
                 <div className="h-px bg-slate-100 w-full" />
                 <a 
                   href={downloadUrl}
-                  className="flex items-center justify-center gap-4 w-full py-6 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
+                  className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
                 >
                   <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
                   Finalize & Download (.ics)
@@ -388,14 +391,10 @@ export default function Home() {
       );
     }
 
-    // Default "Thinking" state for any non-final state
+    // Default "Thinking" state for any non-final state - Now silent and subtle
     return (
-      <div className="flex flex-col justify-center items-center py-20 gap-8">
-        <div className="relative">
-          <div className="w-12 h-12 border-2 border-slate-100 rounded-full" />
-          <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-slate-900 rounded-full animate-spin" />
-        </div>
-        <p className="text-slate-400 font-medium tracking-widest uppercase text-xs animate-pulse">Anticipating your desires</p>
+      <div className="flex flex-col justify-center items-center py-24">
+        <div className="w-1.5 h-1.5 bg-slate-200 rounded-full animate-pulse" />
       </div>
     );
   }, [messages, localResponse, activeIntent]);

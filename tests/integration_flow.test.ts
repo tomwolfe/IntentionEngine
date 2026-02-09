@@ -1,8 +1,41 @@
-import { describe, it, expect, vi } from 'vitest';
-import { classifyIntent } from '../src/lib/intent-schema';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { classifyIntent } from '../src/lib/intent';
+import { generatePlan } from '../src/lib/llm';
 import { AuditOutcomeSchema } from '../src/lib/audit';
 
 describe('Intention Engine Integration Flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('The Silent Whisper (LLM Output)', () => {
+    it('should generate a poetic summary under 100 characters for "Plan a dinner"', async () => {
+      // Steve Jobs: "Silent Execution" - The whisper must be brief and beautiful.
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          choices: [{ message: { content: 'A perfect evening, curated for you.' } }]
+        })
+      });
+
+      const plan = await generatePlan('Plan a dinner');
+      expect(plan.summary.length).toBeLessThan(100);
+      expect(plan.summary).not.toContain('\n');
+      expect(plan.summary).not.toMatch(/I found|I have/i);
+    });
+  });
+
+  describe('The "Thinking" State (UI Logic)', () => {
+    it('should verify that a simple intent like "Hello" results in no "Thinking" text', async () => {
+      // Steve Jobs: "Silent Execution" - We verify that the classification logic 
+      // doesn't force a 'THINKING' state where a 'SIMPLE' one suffices.
+      const classification = await classifyIntent('Hello');
+      expect(classification.type).toBe('SIMPLE');
+      // In page.tsx, if classification.type is SIMPLE, it skips the heavy runAutomatedChain
+      // that triggers the persistent thinking state.
+    });
+  });
+
   describe('Intent Classification', () => {
     it('should classify simple intents as SIMPLE', async () => {
       const result = await classifyIntent('Hello');

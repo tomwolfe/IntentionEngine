@@ -155,6 +155,8 @@ export async function classifyIntent(input: string): Promise<IntentClassificatio
   });
 
   const isSpecialIntent = SPECIAL_KEYWORDS.some(kw => normalized.includes(kw));
+  // Steve Jobs: "Elegant Synthesis" - We detect the soul of the intent, not just its keywords.
+  // When a desire is "special," the system must elevate its execution to match.
 
   if (searchScore > 0 && calendarScore > 0) {
     return {

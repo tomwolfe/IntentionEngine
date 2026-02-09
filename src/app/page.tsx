@@ -79,6 +79,7 @@ export default function Home() {
             if (restaurant) {
               calendarPart.input = {
                 ...calendarPart.input,
+                title: restaurant.name,
                 restaurant_name: restaurant.name,
                 restaurant_address: restaurant.address,
                 location: restaurant.address
@@ -247,6 +248,21 @@ export default function Home() {
             });
           }
   
+          // Propagation: Ensure restaurant details flow into the calendar part for UI/ICS consistency
+          const searchPart = toolResults.find(p => p.toolName === 'search_restaurant');
+          const calendarPart = toolResults.find(p => p.toolName === 'add_calendar_event');
+
+          if (searchPart && calendarPart) {
+            const restaurant = searchPart.output.result[0];
+            if (restaurant) {
+              calendarPart.input = {
+                ...calendarPart.input,
+                title: restaurant.name,
+                location: restaurant.address,
+              };
+            }
+          }
+
           // Finalize the chain by updating messages to trigger the result card
           setMessages([
             ...messages,
@@ -328,6 +344,7 @@ export default function Home() {
       if (restaurant && downloadUrl) {
         try {
           const url = new URL(downloadUrl, window.location.origin);
+          url.searchParams.set('title', restaurant.name);
           url.searchParams.set('location', restaurant.address);
           url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
           downloadUrl = url.pathname + url.search;

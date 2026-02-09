@@ -40,7 +40,7 @@ export function VibeMemoryPanel({ hasTriggeredSearch }: VibeMemoryPanelProps) {
   const handleClear = async () => {
     try {
       await clearVibeMemory();
-      setMemory([]);
+      setMemory({ cuisines: [], preferences: {} });
       setIsVisible(false);
       setIsOpen(false);
     } catch (err) {
@@ -51,6 +51,8 @@ export function VibeMemoryPanel({ hasTriggeredSearch }: VibeMemoryPanelProps) {
   // Only show if we have memory or if we've triggered a search in this session
   if (!isVisible && !hasTriggeredSearch) return null;
 
+  const hasMemory = memory.cuisines.length > 0 || Object.keys(memory.preferences).length > 0;
+
   return (
     <>
       <button 
@@ -58,7 +60,7 @@ export function VibeMemoryPanel({ hasTriggeredSearch }: VibeMemoryPanelProps) {
         className="fixed bottom-8 left-8 p-4 bg-white border border-slate-100 rounded-full text-slate-400 hover:text-slate-900 transition-all hover:scale-110 shadow-xl z-40 group"
         aria-label="Vibe Memory"
       >
-        <Sparkles size={24} className={`${memory.length > 0 ? "text-amber-400" : ""} group-hover:rotate-12 transition-transform`} />
+        <Sparkles size={24} className={`${hasMemory ? "text-amber-400" : ""} group-hover:rotate-12 transition-transform`} />
       </button>
 
       {isOpen && (

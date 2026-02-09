@@ -30,8 +30,9 @@ export default function Home() {
   const [localResponse, setLocalResponse] = useState("");
   const [activeIntent, setActiveIntent] = useState<any>(null);
   const [isListening, setIsListening] = useState(false);
-  const [auditLogId, setAuditLogId] = useState<string | null>(null);
+      const [auditLogId, setAuditLogId] = useState<string | null>(null);
   const [isExecutingChain, setIsExecutingChain] = useState(false);
+  const [whisperData, setWhisperData] = useState<{show: boolean, restaurant: any, wineShopResult: any}>({show: false, restaurant: null, wineShopResult: null});
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -233,9 +234,13 @@ export default function Home() {
         setIsExecutingChain(true);
         setActiveIntent({ type: "THINKING", isSpecialIntent: true });
         setLocalResponse("");
+        setWhisperData({ show: false, restaurant: null, wineShopResult: null });
   
         try {
           const toolResults: any[] = [];
+          let restaurantData: any = null;
+          let hasCalendarEvent = false;
+          
           for (let i = 0; i < plan.ordered_steps.length; i++) {
             const step = plan.ordered_steps[i];
             const { result } = await executeTool(id, i);
@@ -248,6 +253,16 @@ export default function Home() {
               input: step.parameters,
               output: result
             });
+            
+            // Track restaurant data for whisper
+            if (step.tool_name === 'search_restaurant' && result?.success && result?.result?.[0]) {
+              restaurantData = result.result[0];
+            }
+            
+            // Track if we have a calendar event
+            if (step.tool_name === 'add_calendar_event') {
+              hasCalendarEvent = true;
+            }
           }
   
           // Propagation: Ensure restaurant details flow into the calendar part for UI/ICS consistency
@@ -266,6 +281,16 @@ export default function Home() {
                 restaurant_address: restaurant.address
               };
             }
+          }
+          
+          // Contextual Completion Whisper: Check if we should show wine shop suggestion
+          // Only show if we have a restaurant with cuisine and a calendar event (romantic dinner scenario)
+          if (restaurantData?.cuisine && hasCalendarEvent) {
+            setWhisperData({
+              show: true,
+              restaurant: restaurantData,
+              wineShopResult: null
+            });
           }
 
           // Finalize the chain by updating messages to trigger the result card
@@ -288,6 +313,28 @@ export default function Home() {
           setActiveIntent({ type: "ERROR", isSpecialIntent: true });
         } finally {
           setIsExecutingChain(false);
+        }
+      };
+      
+      const handleWhisperYes = async () => {
+        if (!whisperData.restaurant) return;
+        
+        try {
+          // Execute find_event to search for wine shops near the restaurant
+          const result = await executeTool('find_event', {
+            location: whisperData.restaurant.address,
+            query: 'wine shop'
+          });
+          
+          if (result?.success && result?.result?.[0]) {
+            setWhisperData(prev => ({
+              ...prev,
+              show: false,
+              wineShopResult: result.result[0]
+            }));
+          }
+        } catch (err) {
+          console.error("Wine shop whisper failed", err);
         }
       };
   
@@ -327,22 +374,52 @@ export default function Home() {
         name: (calendarPart as any)?.input?.title || "Selected Location", 
         address: (calendarPart as any)?.input?.location || "Confirmed" 
       };
-      const calendarResult = (calendarPart as any)?.output?.result;
-      const startTime = (calendarPart as any)?.input?.start_time;
+      
+      // Intent Fusion: Check for multiple calendar events
+      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
+      const allCalendarParts = lastAssistantMessage?.parts?.filter((p: any) => 
+        isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available'
+      ) || [];
+      
+      const isFused = allCalendarParts.length >= 2;
+      
+      let downloadUrl: string | undefined;
+      
+      // Get time from first calendar event for display
+      const firstCalendarPart = allCalendarParts[0] || calendarPart;
+      const startTime = (firstCalendarPart as any)?.input?.start_time;
       const formattedTime = startTime ? new Date(startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
       
-      let downloadUrl = calendarResult?.download_url;
-      if (searchPart && downloadUrl) {
-        const r = (searchPart as any)?.output?.result?.[0];
-        if (r) {
-          try {
-            const url = new URL(downloadUrl, window.location.origin);
-            url.searchParams.set('title', r.name);
-            url.searchParams.set('location', r.address);
-            url.searchParams.set('description', `Restaurant: ${r.name}\nAddress: ${r.address}`);
-            downloadUrl = url.pathname + url.search;
-          } catch (e) {
-            console.warn("Failed to repair download URL", e);
+      if (isFused) {
+        // Generate fused ICS URL with multiple events
+        const events = allCalendarParts.map((part: any) => ({
+          title: part.input?.title || 'Event',
+          start: part.input?.start_time,
+          end: part.input?.end_time,
+          location: part.input?.location || part.input?.restaurant_address || '',
+          description: part.input?.description || `Restaurant: ${part.input?.restaurant_name || 'N/A'}\nAddress: ${part.input?.restaurant_address || 'N/A'}`
+        }));
+        
+        const params = new URLSearchParams({
+          multiple_events: 'true',
+          events: encodeURIComponent(JSON.stringify(events))
+        });
+        downloadUrl = `/api/download-ics?${params.toString()}`;
+      } else {
+        const calendarResult = (calendarPart as any)?.output?.result;
+        downloadUrl = calendarResult?.download_url;
+        if (searchPart && downloadUrl) {
+          const r = (searchPart as any)?.output?.result?.[0];
+          if (r) {
+            try {
+              const url = new URL(downloadUrl, window.location.origin);
+              url.searchParams.set('title', r.name);
+              url.searchParams.set('location', r.address);
+              url.searchParams.set('description', `Restaurant: ${r.name}\nAddress: ${r.address}`);
+              downloadUrl = url.pathname + url.search;
+            } catch (e) {
+              console.warn("Failed to repair download URL", e);
+            }
           }
         }
       }
@@ -356,21 +433,54 @@ export default function Home() {
       return (
         <div className="space-y-4 pt-4">
           <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
-            <div className="mb-10">
-              <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
-              <div className="flex flex-col gap-2">
-                <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
-                {formattedTime && (
-                  <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
-                )}
+            {isFused ? (
+              // Intent Fusion: Unified card for multiple events
+              <div className="mb-10">
+                {allCalendarParts.map((part: any, index: number) => {
+                  const eventStart = part.input?.start_time;
+                  const eventTime = eventStart ? new Date(eventStart).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+                  const isMainEvent = index === 0;
+                  
+                  return (
+                    <div key={index}>
+                      <div className={isMainEvent ? "mb-8" : "mt-8"}>
+                        <h3 className={`font-bold tracking-tight mb-3 ${isMainEvent ? 'text-4xl text-slate-900' : 'text-2xl text-slate-700'}`}>
+                          {part.input?.title || 'Event'}
+                        </h3>
+                        <div className="flex flex-col gap-2">
+                          <p className="text-slate-400 text-xl font-light">{part.input?.location || part.input?.restaurant_address || 'Location TBD'}</p>
+                          {eventTime && (
+                            <p className={`font-semibold mt-2 ${isMainEvent ? 'text-2xl text-slate-900' : 'text-xl text-slate-600'}`}>
+                              {eventTime}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {index === 0 && allCalendarParts.length > 1 && (
+                        <div className="h-px bg-slate-100 w-full my-8" />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            ) : (
+              // Standard single event card
+              <div className="mb-10">
+                <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
+                <div className="flex flex-col gap-2">
+                  <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
+                  {formattedTime && (
+                    <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
-            {restaurant.suggested_wine && (
+            {restaurant.suggested_wine && !isFused && (
               <div className="bg-amber-50/30 p-8 rounded-3xl border border-amber-100/50 mb-10 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-1 h-full bg-amber-400/50" />
                 <p className="text-2xl text-amber-900/80 font-serif italic leading-relaxed">
-                  “Pair with {restaurant.suggested_wine} to elevate the evening.”
+                  "Pair with {restaurant.suggested_wine} to elevate the evening."
                 </p>
               </div>
             )}
@@ -387,6 +497,40 @@ export default function Home() {
                   Finalize & Download (.ics)
                 </a>
                 <p className="text-center text-slate-400 text-sm font-medium tracking-wide uppercase">The Final Act of Will</p>
+              </div>
+            )}
+            
+            {/* Contextual Completion Whisper */}
+            {whisperData.show && (
+              <div className="mt-6 pt-6 border-t border-slate-100">
+                <p className="text-slate-500 text-sm italic mb-3">
+                  Would you like me to find a nearby wine shop for a bottle to bring?
+                </p>
+                <button
+                  onClick={handleWhisperYes}
+                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors"
+                >
+                  Yes
+                </button>
+              </div>
+            )}
+            
+            {/* Wine Shop Result */}
+            {whisperData.wineShopResult && (
+              <div className="mt-6 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">Suggested Wine Shop</p>
+                <h4 className="text-lg font-semibold text-slate-800">{whisperData.wineShopResult.name}</h4>
+                <p className="text-slate-500 text-sm">{whisperData.wineShopResult.location}</p>
+                {whisperData.wineShopResult.url && (
+                  <a 
+                    href={whisperData.wineShopResult.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 text-sm mt-2 inline-block hover:underline"
+                  >
+                    View Details
+                  </a>
+                )}
               </div>
             )}
           </div>

@@ -59,3 +59,17 @@ export const DownloadIcsSchema = z.object({
   location: z.string().optional().default(''),
   description: z.string().optional().default(''),
 });
+
+export const FindEventSchema = z.object({
+  location: z.string().max(500).trim().optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lon: z.number().min(-180).max(180).optional(),
+  date: z.string().max(100).trim().optional(),
+}).refine(data => (data.lat !== undefined && data.lon !== undefined) || data.location, {
+  message: "Either coordinates (lat, lon) or location must be provided",
+});
+
+export const DirectionsSchema = z.object({
+  origin: z.string().min(1).max(500).trim(),
+  destination: z.string().min(1).max(500).trim().optional(),
+});

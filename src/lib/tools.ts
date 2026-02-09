@@ -1,6 +1,6 @@
 import { RestaurantResultSchema, RestaurantResult } from "./schema";
 import { cache, CACHE_TTLS } from "./cache";
-import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema, WeatherForecastSchema } from "./validation-schemas";
+import { GeocodeLocationSchema, SearchRestaurantSchema, AddCalendarEventSchema, WeatherForecastSchema, FindEventSchema, DirectionsSchema } from "./validation-schemas";
 import { withCircuitBreaker } from "./reliability";
 import { withRetry } from "./utils/reliability";
 import * as chrono from "chrono-node";
@@ -361,11 +361,134 @@ export async function add_calendar_event(params: any) {
   });
 }
 
+export async function find_event(params: any) {
+  const validated = FindEventSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: "Invalid parameters", details: validated.error.format() };
+  }
+  
+  let { location, lat, lon, date } = validated.data;
+  
+  // Geocode location if coordinates not provided
+  if ((lat === undefined || lon === undefined) && location) {
+    const geo = await geocode_location({ location });
+    if (geo.success && geo.result) {
+      lat = geo.result.lat;
+      lon = geo.result.lon;
+    } else {
+      return { success: false, error: "Could not geocode location and no coordinates provided." };
+    }
+  }
+  
+  if (lat === undefined || lon === undefined) {
+    return { success: false, error: "Coordinates are required for event search." };
+  }
+  
+  // Parse date if provided
+  let dateFilter: Date | undefined;
+  if (date) {
+    const parsedDate = chrono.parseDate(date);
+    if (parsedDate) {
+      dateFilter = parsedDate;
+    }
+  }
+  
+  console.log(`Finding events near ${lat}, ${lon}${dateFilter ? ` for ${dateFilter.toISOString()}` : ''}...`);
+  
+  try {
+    // Use Eventbrite API (free tier available) or fallback to mock data
+    // For demo purposes, using a mock implementation with realistic data
+    // In production, replace with actual API call to Eventbrite, Meetup, or similar
+    
+    const mockEvents = [
+      {
+        name: "Jazz Night at the Blue Note",
+        start_time: new Date(Date.now() + 86400000).toISOString(),
+        end_time: new Date(Date.now() + 90000000).toISOString(),
+        location: "Blue Note Jazz Club, 131 W 3rd St",
+        url: "https://example.com/events/jazz-night"
+      },
+      {
+        name: "Art Gallery Opening",
+        start_time: new Date(Date.now() + 172800000).toISOString(),
+        end_time: new Date(Date.now() + 176400000).toISOString(),
+        location: "Downtown Art Space, 456 Gallery Ave",
+        url: "https://example.com/events/art-opening"
+      },
+      {
+        name: "Weekend Wine Tasting",
+        start_time: new Date(Date.now() + 259200000).toISOString(),
+        end_time: new Date(Date.now() + 262800000).toISOString(),
+        location: "The Vineyard Cellar, 789 Wine St",
+        url: "https://example.com/events/wine-tasting"
+      }
+    ];
+    
+    // Filter by date if provided
+    let filteredEvents = mockEvents;
+    if (dateFilter) {
+      const filterDate = dateFilter.toDateString();
+      filteredEvents = mockEvents.filter(event => {
+        const eventDate = new Date(event.start_time).toDateString();
+        return eventDate === filterDate;
+      });
+    }
+    
+    return {
+      success: true,
+      result: filteredEvents.length > 0 ? filteredEvents : mockEvents.slice(0, 2)
+    };
+  } catch (error: any) {
+    console.error("Error in find_event:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function get_directions(params: any) {
+  const validated = DirectionsSchema.safeParse(params);
+  if (!validated.success) {
+    return { success: false, error: "Invalid parameters", details: validated.error.format() };
+  }
+  
+  const { origin, destination } = validated.data;
+  
+  console.log(`Getting directions from ${origin} to ${destination || 'current location'}...`);
+  
+  try {
+    // Geocode origin
+    const originGeo = await geocode_location({ location: origin });
+    if (!originGeo.success || !originGeo.result) {
+      return { success: false, error: "Could not geocode origin location" };
+    }
+    
+    // For demo purposes, using mock data
+    // In production, replace with actual Mapbox Directions API or HERE Routing API
+    
+    const mockRoute = {
+      origin: origin,
+      destination: destination || "Current Location",
+      distance: "2.5 km",
+      duration: "10 min",
+      directions_url: `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination || "Current Location")}`
+    };
+    
+    return {
+      success: true,
+      result: mockRoute
+    };
+  } catch (error: any) {
+    console.error("Error in get_directions:", error);
+    return { success: false, error: error.message };
+  }
+}
+
 export const TOOLS: Record<string, Function> = Object.freeze({
   search_restaurant,
   add_calendar_event,
   geocode_location,
   get_weather_forecast,
+  find_event,
+  get_directions,
 });
 
 export async function executeTool(nameOrId: string, paramsOrIndex: any) {

@@ -206,7 +206,7 @@ export async function classifyIntent(input: string): Promise<IntentClassificatio
       type: "COMPLEX_PLAN",
       confidence: 0.95,
       reason: `Detected both search (${searchScore}) and calendar (${calendarScore}) keywords`,
-      isSpecialIntent
+      isSpecialIntent: true
     };
   }
 
@@ -243,34 +243,66 @@ export async function classifyIntent(input: string): Promise<IntentClassificatio
     };
   }
 
-  const SIMPLE_KEYWORDS = ['hi', 'hello', 'hey', 'greetings', 'yo', 'morning', 'afternoon', 'evening', 'thanks', 'thank you', 'thx', 'ty', 'much appreciated', 'ok', 'okay', 'cool', 'got it', 'sure', 'yes', 'no', 'bye', 'goodbye', 'help'];
+    const SIMPLE_KEYWORDS = ['hi', 'hello', 'hey', 'greetings', 'yo', 'morning', 'afternoon', 'evening', 'thanks', 'thank you', 'thx', 'ty', 'much appreciated', 'ok', 'okay', 'cool', 'got it', 'sure', 'yes', 'no', 'bye', 'goodbye', 'help', 'time', 'date', 'who', 'what', 'how'];
+
+    
+
+    let simpleScore = 0;
+
+    words.forEach(word => {
+
+      if (SIMPLE_KEYWORDS.includes(word)) simpleScore++;
+
+    });
+
   
-  let simpleScore = 0;
-  words.forEach(word => {
-    if (SIMPLE_KEYWORDS.includes(word)) simpleScore++;
-  });
 
-  if (simpleScore > 0) {
+    if (simpleScore > 0) {
+
+      return {
+
+        type: "SIMPLE",
+
+        confidence: 0.95,
+
+        reason: "Matched common simple intent keywords"
+
+      };
+
+    }
+
+  
+
+    // If it's very short but didn't match anything else, it's still likely simple
+
+    if (normalized.length < 5) {
+
+      return {
+
+        type: "SIMPLE",
+
+        confidence: 0.9,
+
+        reason: "Short input with no tool-use markers"
+
+      };
+
+    }
+
+  
+
+    // Default to requiring further analysis (LLM)
+
     return {
+
       type: "SIMPLE",
-      confidence: 0.9,
-      reason: "Matched common simple intent keywords"
+
+      confidence: 0.5,
+
+      reason: "No clear tool-use markers, defaulting to simple"
+
     };
+
   }
 
-  // If it's very short but didn't match anything else, it's still likely simple
-  if (normalized.length < 5) {
-    return {
-      type: "SIMPLE",
-      confidence: 0.8,
-      reason: "Short input with no tool-use markers"
-    };
-  }
-
-  // Default to requiring further analysis (LLM)
-  return {
-    type: "SIMPLE",
-    confidence: 0.5,
-    reason: "No clear tool-use markers, defaulting to simple"
-  };
-}
+  

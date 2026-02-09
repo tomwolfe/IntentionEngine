@@ -44,6 +44,7 @@ export const ExecuteRequestSchema = z.object({
   audit_log_id: z.string().min(1),
   step_index: z.number().min(0),
   user_confirmed: z.boolean().optional().default(false),
+  parameters: z.any().optional(),
 });
 
 export const AuditRequestSchema = z.object({

@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { audit_log_id, step_index, user_confirmed } = validatedBody.data;
+      const { audit_log_id, step_index, user_confirmed, parameters: providedParams } = validatedBody.data;
 
       const log = await getAuditLog(audit_log_id);
       if (!log || !log.plan) {
@@ -27,6 +27,9 @@ export async function POST(req: NextRequest) {
       if (!step) {
         return NextResponse.json({ error: "Step not found" }, { status: 404 });
       }
+
+      // Merge provided parameters with step parameters
+      const parameters = providedParams ? { ...step.parameters, ...providedParams } : step.parameters;
 
       // Check if already executed
       const existingStepLog = log.steps.find(s => s.step_index === step_index);
@@ -47,13 +50,13 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const result = await executeTool(step.tool_name, step.parameters);
+        const result = await executeTool(step.tool_name, parameters);
         
         const stepLog = {
           step_index,
           tool_name: step.tool_name,
           status: "executed" as const,
-          input: step.parameters,
+          input: parameters,
           output: result,
           confirmed_by_user: user_confirmed,
         };

@@ -6,7 +6,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isTo
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
 import { executeTool } from "@/lib/tools";
-import { Calendar, Mic } from "lucide-react";
+import { Calendar, Mic, AlertCircle } from "lucide-react";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -32,6 +32,9 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
       const [auditLogId, setAuditLogId] = useState<string | null>(null);
   const [isExecutingChain, setIsExecutingChain] = useState(false);
+  const [hasChainFailure, setHasChainFailure] = useState(false);
+  const [showFailureDetails, setShowFailureDetails] = useState(false);
+  const [clientAuditLog, setClientAuditLog] = useState<any>(null);
   const [whisperData, setWhisperData] = useState<{show: boolean, restaurant: any, wineShopResult: any, sessionContext: any}>({
     show: false, 
     restaurant: null, 
@@ -257,16 +260,20 @@ export default function Home() {
         setIsExecutingChain(true);
         setActiveIntent({ type: "THINKING", isSpecialIntent: true });
         setLocalResponse("");
+        setHasChainFailure(false);
+        setClientAuditLog(null);
         
         // Offline Mode: Check if offline
         const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
+        const toolResults: any[] = [];
+        let restaurantData: any = null;
+        let hasCalendarEvent = false;
+        let wineShopResult: any = null;
+        let failedStepIndex: number | null = null;
+        let failureError: string | null = null;
+
         try {
-          const toolResults: any[] = [];
-          let restaurantData: any = null;
-          let hasCalendarEvent = false;
-          let wineShopResult: any = null;
-          
           for (let i = 0; i < plan.ordered_steps.length; i++) {
             const step = plan.ordered_steps[i];
             
@@ -285,30 +292,38 @@ export default function Home() {
               }
             }
 
-            const { result } = await executeTool(id, i);
-            
-            toolResults.push({
-              type: "dynamic-tool",
-              toolName: step.tool_name,
-              toolCallId: `call_${id}_${i}`,
-              state: "output-available",
-              input: step.parameters,
-              output: result
-            });
-            
-            // Track restaurant data for whisper and session context
-            if (step.tool_name === 'search_restaurant' && result?.success && result?.result?.[0]) {
-              restaurantData = result.result[0];
-              updateSessionContext({
-                cuisine: restaurantData.cuisine,
-                ambiance: originalClassification.isSpecialIntent ? 'romantic' : 'standard',
-                occasion: originalClassification.metadata?.isDateNight ? 'date_night' : undefined
+            try {
+              const { result } = await executeTool(id, i);
+              
+              toolResults.push({
+                type: "dynamic-tool",
+                toolName: step.tool_name,
+                toolCallId: `call_${id}_${i}`,
+                state: "output-available",
+                input: step.parameters,
+                output: result
               });
-            }
-            
-            // Track if we have a calendar event
-            if (step.tool_name === 'add_calendar_event') {
-              hasCalendarEvent = true;
+              
+              // Track restaurant data for whisper and session context
+              if (step.tool_name === 'search_restaurant' && result?.success && result?.result?.[0]) {
+                restaurantData = result.result[0];
+                updateSessionContext({
+                  cuisine: restaurantData.cuisine,
+                  ambiance: originalClassification.isSpecialIntent ? 'romantic' : 'standard',
+                  occasion: originalClassification.metadata?.isDateNight ? 'date_night' : undefined
+                });
+              }
+              
+              // Track if we have a calendar event
+              if (step.tool_name === 'add_calendar_event') {
+                hasCalendarEvent = true;
+              }
+            } catch (stepErr: any) {
+              console.error(`Step ${i} (${step.tool_name}) failed:`, stepErr);
+              failedStepIndex = i;
+              failureError = stepErr.message;
+              setHasChainFailure(true);
+              break; // Halt execution on critical step failure
             }
           }
   
@@ -332,18 +347,22 @@ export default function Home() {
           
           // Pre-emptive Whisper Validation
           let finalSummary = plan.summary;
-          const forbiddenWords = ["found", "searched", "scheduled", "prepared", "I've"];
-          const isBadWhisper = !finalSummary || finalSummary.length > 100 || forbiddenWords.some(word => finalSummary.toLowerCase().includes(word));
+          if (failedStepIndex !== null) {
+            finalSummary = "We encountered a minor issue while preparing your plans. Please review the details below.";
+          } else {
+            const forbiddenWords = ["found", "searched", "scheduled", "prepared", "I've"];
+            const isBadWhisper = !finalSummary || finalSummary.length > 100 || forbiddenWords.some(word => finalSummary.toLowerCase().includes(word));
 
-          if (isBadWhisper || isOffline) {
-            try {
-              const engine = await localProvider.getEngine(() => {});
-              await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
-              const whisperPrompt = `Describe this in one poetic sentence under 100 chars: ${originalClassification.reason}. No AI words.`;
-              finalSummary = await engine.generate(whisperPrompt);
-              if (finalSummary.length > 100) finalSummary = "Your arrangements are ready.";
-            } catch (err) {
-              finalSummary = "A bottle of wine has been suggested for your evening.";
+            if (isBadWhisper || isOffline) {
+              try {
+                const engine = await localProvider.getEngine(() => {});
+                await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
+                const whisperPrompt = `Describe this in one poetic sentence under 100 chars: ${originalClassification.reason}. No AI words.`;
+                finalSummary = await engine.generate(whisperPrompt);
+                if (finalSummary.length > 100) finalSummary = "Your arrangements are ready.";
+              } catch (err) {
+                finalSummary = "A bottle of wine has been suggested for your evening.";
+              }
             }
           }
 
@@ -362,6 +381,35 @@ export default function Home() {
             }
           ]);
           
+          // Capture client-side audit log if failure occurred
+          if (failedStepIndex !== null) {
+            setClientAuditLog({
+              id: id,
+              timestamp: new Date().toISOString(),
+              plan: plan,
+              steps: [
+                ...toolResults.map((tr, idx) => ({
+                  step_index: idx,
+                  tool_name: tr.toolName,
+                  status: "executed",
+                  input: tr.input,
+                  output: tr.output
+                })),
+                {
+                  step_index: failedStepIndex,
+                  tool_name: plan.ordered_steps[failedStepIndex].tool_name,
+                  status: "failed",
+                  input: plan.ordered_steps[failedStepIndex].parameters,
+                  error: failureError
+                }
+              ],
+              final_outcome: {
+                status: "FAILURE",
+                message: `Execution failed at step ${failedStepIndex}: ${failureError}`
+              }
+            });
+          }
+
           // Restore the classification state so UI logic (like isSimplified) works correctly
           setActiveIntent({ ...originalClassification, plan: { ...plan, summary: finalSummary } });
         } catch (err) {
@@ -425,8 +473,9 @@ export default function Home() {
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
     const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
+    const isFailed = hasChainFailure;
 
-    if (isComplete || isSimplified) {
+    if (isComplete || isSimplified || isFailed) {
       const restaurant = (searchPart as any)?.output?.result?.[0] || { 
         name: (calendarPart as any)?.input?.title || "Selected Location", 
         address: (calendarPart as any)?.input?.location || "Confirmed" 
@@ -435,7 +484,6 @@ export default function Home() {
       const event = (eventPart as any)?.output?.result?.[0];
       
       // Intent Fusion: Check for multiple calendar events
-      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
       const allCalendarParts = lastAssistantMessage?.parts?.filter((p: any) => 
         isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available'
       ) || [];
@@ -464,7 +512,7 @@ export default function Home() {
           events: encodeURIComponent(JSON.stringify(events))
         });
         downloadUrl = `/api/download-ics?${params.toString()}`;
-      } else {
+      } else if (calendarPart && (calendarPart as any).state === 'output-available') {
         const calendarResult = (calendarPart as any)?.output?.result;
         downloadUrl = calendarResult?.download_url;
         if (searchPart && downloadUrl) {
@@ -570,6 +618,23 @@ export default function Home() {
                 <p className="text-center text-slate-400 text-sm font-medium tracking-wide uppercase">The Final Act of Will</p>
               </div>
             )}
+
+            {hasChainFailure && (
+              <div className="mt-10 p-8 border border-amber-100 bg-amber-50/30 rounded-[2.5rem] flex flex-col items-center text-center">
+                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mb-4">
+                  <AlertCircle size={24} />
+                </div>
+                <p className="text-amber-900 text-lg font-medium mb-6">
+                  We encountered a minor issue while preparing your plans. Please review the details below.
+                </p>
+                <button 
+                  onClick={() => setShowFailureDetails(true)}
+                  className="px-8 py-3 bg-amber-200/50 hover:bg-amber-200 text-amber-800 rounded-full text-sm font-bold transition-all active:scale-95"
+                >
+                  View Details
+                </button>
+              </div>
+            )}
             
             {/* Contextual Completion Whisper */}
             {whisperData.show && (
@@ -615,7 +680,7 @@ export default function Home() {
         <div className="w-1.5 h-1.5 bg-slate-200 rounded-full animate-pulse" />
       </div>
     );
-  }, [messages, localResponse, activeIntent]);
+  }, [messages, localResponse, activeIntent, hasChainFailure]);
 
   const isActuallySubmitted = activeIntent !== null;
   const isThinking = isLoading || activeIntent?.type === "THINKING";
@@ -664,6 +729,30 @@ export default function Home() {
           </div>
           <div className="bg-white p-10 md:p-16 rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.05)] border border-slate-50">
              {outcomeContent}
+          </div>
+        </div>
+      )}
+      
+      {showFailureDetails && clientAuditLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-2xl max-h-[80vh] rounded-[3rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300">
+            <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="text-xl font-bold text-slate-900">Execution Diagnostics</h3>
+              <button 
+                onClick={() => setShowFailureDetails(false)}
+                className="text-slate-400 hover:text-slate-900 p-2 transition-colors"
+              >
+                <span className="text-sm font-bold uppercase tracking-widest">Close</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-8 bg-slate-900">
+              <pre className="text-xs font-mono text-emerald-400/90 whitespace-pre-wrap leading-relaxed">
+                {JSON.stringify(clientAuditLog, null, 2)}
+              </pre>
+            </div>
+            <div className="p-6 bg-slate-50 text-center">
+              <p className="text-slate-400 text-[10px] uppercase tracking-widest font-bold">Immutable Audit Record • {clientAuditLog.id}</p>
+            </div>
           </div>
         </div>
       )}

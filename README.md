@@ -6,7 +6,6 @@ IntentionEngine is not a chatbot. It is a revolutionary AI assistant that replac
 [Demo Video](https://youtu.be/J-PFgUTXh0c)
 
 ## 🚀 Core Philosophy: Silent Elegance Through Autonomous Respect
-
 > **"We do not answer questions. We anticipate desires and deliver outcomes, silently and elegantly, with the user's single click as the final act of will."**
 
 This is not merely a feature set; it is our core operating principle. Every future decision must be filtered through this lens. It has four inseparable pillars:
@@ -135,6 +134,7 @@ intentionengine/
 *   npm or yarn
 
 ### Steps
+
 1.  **Clone the Repository**
 ```bash
 git clone https://github.com/tomwolfe/IntentionEngine.git

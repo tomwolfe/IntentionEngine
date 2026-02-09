@@ -40,6 +40,10 @@ export async function generatePlan(
     ? `The user has recently expressed a preference for ${dnaCuisine} cuisine.`
     : "";
 
+  const planContext = deterministicPlan.ordered_steps && deterministicPlan.ordered_steps.length > 0
+    ? `The system has already prepared a ${deterministicPlan.intent_type} plan with ${deterministicPlan.ordered_steps.length} steps.`
+    : "The system is currently identifying the best path forward.";
+
   if (!apiKey) {
     return {
       ...deterministicPlan,
@@ -60,6 +64,7 @@ export async function generatePlan(
   Context:
   ${dnaContext}
   ${weatherContext}
+  ${planContext}
   
   Describe the upcoming experience as a completed, elegant reality.`;
 

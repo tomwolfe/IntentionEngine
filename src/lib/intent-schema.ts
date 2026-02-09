@@ -8,6 +8,7 @@ export interface IntentClassification {
   confidence: number;
   reason: string;
   isSpecialIntent?: boolean;
+  metadata?: Record<string, any>;
 }
 
 export { classifyIntent } from "./intent";

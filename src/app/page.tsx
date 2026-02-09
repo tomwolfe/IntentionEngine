@@ -321,48 +321,29 @@ export default function Home() {
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
     const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
-    const isPureCalendar = isComplete && !searchPart;
-
-    if (isPureCalendar) {
-      const calendarResult = (calendarPart as any)?.output?.result;
-      const downloadUrl = calendarResult?.download_url;
-      if (!downloadUrl) return null;
-
-      const handleIcsClick = () => {
-        const restaurant = (searchPart as any)?.output?.result?.[0];
-        if (restaurant?.cuisine) {
-          sessionStorage.setItem('intent-dna-cuisine', restaurant.cuisine);
-        }
-      };
-
-      return (
-        <div className="pt-4 animate-in zoom-in-95 duration-700">
-          <a 
-            href={downloadUrl}
-            onClick={handleIcsClick}
-            className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 hover:shadow-black/10 group"
-          >
-            <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
-            Finalize & Download (.ics)
-          </a>
-        </div>
-      );
-    }
 
     if (isComplete || isSimplified) {
-      const restaurant = (searchPart as any)?.output?.result?.[0] || { name: "Selected Location", address: "Confirmed" };
+      const restaurant = (searchPart as any)?.output?.result?.[0] || { 
+        name: (calendarPart as any)?.input?.title || "Selected Location", 
+        address: (calendarPart as any)?.input?.location || "Confirmed" 
+      };
       const calendarResult = (calendarPart as any)?.output?.result;
+      const startTime = (calendarPart as any)?.input?.start_time;
+      const formattedTime = startTime ? new Date(startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
       
       let downloadUrl = calendarResult?.download_url;
-      if (restaurant && downloadUrl) {
-        try {
-          const url = new URL(downloadUrl, window.location.origin);
-          url.searchParams.set('title', restaurant.name);
-          url.searchParams.set('location', restaurant.address);
-          url.searchParams.set('description', `Restaurant: ${restaurant.name}\nAddress: ${restaurant.address}`);
-          downloadUrl = url.pathname + url.search;
-        } catch (e) {
-          console.warn("Failed to repair download URL", e);
+      if (searchPart && downloadUrl) {
+        const r = (searchPart as any)?.output?.result?.[0];
+        if (r) {
+          try {
+            const url = new URL(downloadUrl, window.location.origin);
+            url.searchParams.set('title', r.name);
+            url.searchParams.set('location', r.address);
+            url.searchParams.set('description', `Restaurant: ${r.name}\nAddress: ${r.address}`);
+            downloadUrl = url.pathname + url.search;
+          } catch (e) {
+            console.warn("Failed to repair download URL", e);
+          }
         }
       }
 
@@ -377,7 +358,12 @@ export default function Home() {
           <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
             <div className="mb-10">
               <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
-              <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
+              <div className="flex flex-col gap-2">
+                <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
+                {formattedTime && (
+                  <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
+                )}
+              </div>
             </div>
 
             {restaurant.suggested_wine && (

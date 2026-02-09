@@ -30,10 +30,19 @@ export function getDeterministicPlan(
 
   // Extract date from input or default to today
   const parsedDate = chrono.parseDate(input) || new Date();
-  const dateStr = parsedDate.toISOString();
+  
+  let startTime = parsedDate;
+  const isTransport = classification.metadata?.isTransport;
+
+  if (isTransport) {
+    // Sacred Rule: Transport events start 2 hours before the target arrival time
+    startTime = new Date(parsedDate.getTime() - 2 * 60 * 60 * 1000);
+  }
+
+  const dateStr = startTime.toISOString();
   
   // End time is always 2 hours later (Sacred Rule)
-  const endDate = new Date(parsedDate.getTime() + 2 * 60 * 60 * 1000);
+  const endDate = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
   const endDateStr = endDate.toISOString();
 
   // Simple cuisine extraction
@@ -67,7 +76,7 @@ export function getDeterministicPlan(
   if (classification.type === "TOOL_CALENDAR" || classification.type === "COMPLEX_PLAN") {
     const steps = [];
     
-    if (classification.type === "COMPLEX_PLAN" || normalized.includes("restaurant") || normalized.includes("dinner") || normalized.includes("lunch")) {
+    if (!isTransport && (classification.type === "COMPLEX_PLAN" || normalized.includes("restaurant") || normalized.includes("dinner") || normalized.includes("lunch"))) {
       steps.push({
         tool_name: "search_restaurant",
         parameters: { 
@@ -81,21 +90,35 @@ export function getDeterministicPlan(
       });
     }
 
-    steps.push({
-      tool_name: "add_calendar_event",
-      parameters: { 
-        title: classification.isSpecialIntent ? "Special Occasion" : "Event",
-        start_time: dateStr,
-        end_time: endDateStr,
-        location: "" // To be filled by restaurant result in client
-      },
-      requires_confirmation: true,
-      description: "Preparing your calendar for the final act."
-    });
+    if (isTransport) {
+      steps.push({
+        tool_name: "add_calendar_event",
+        parameters: { 
+          title: `Travel to ${classification.metadata?.location || 'Airport'}`,
+          start_time: dateStr,
+          end_time: endDateStr,
+          location: classification.metadata?.location || (userLocation ? "Current Location" : "London")
+        },
+        requires_confirmation: false,
+        description: "Securing your passage."
+      });
+    } else {
+      steps.push({
+        tool_name: "add_calendar_event",
+        parameters: { 
+          title: classification.isSpecialIntent ? "Special Occasion" : "Event",
+          start_time: dateStr,
+          end_time: endDateStr,
+          location: "" // To be filled by restaurant result in client
+        },
+        requires_confirmation: true,
+        description: "Preparing your calendar for the final act."
+      });
+    }
 
     return {
-      intent_type: classification.type === "COMPLEX_PLAN" ? "dining_and_calendar" : "scheduling",
-      constraints: ["deterministic orchestration", "2-hour duration"],
+      intent_type: isTransport ? "transport" : (classification.type === "COMPLEX_PLAN" ? "dining_and_calendar" : "scheduling"),
+      constraints: ["deterministic orchestration", isTransport ? "2-hour buffer" : "2-hour duration"],
       ordered_steps: steps
     };
   }
@@ -129,8 +152,29 @@ export async function classifyIntent(input: string): Promise<IntentClassificatio
   }
 
   // High-confidence special patterns
+  const transportMatch = input.match(/(?:need to be at|be at|arrival at)\s+(.+?)\s+by\s+(.+)/i);
+  if (transportMatch) {
+    return { 
+      type: "TOOL_CALENDAR", 
+      confidence: 0.95, 
+      reason: "Time-critical transportation request detected", 
+      isSpecialIntent: true,
+      metadata: {
+        isTransport: true,
+        location: transportMatch[1].trim(),
+        targetTime: transportMatch[2].trim()
+      }
+    };
+  }
+
   if (normalized.includes("airport") && /\bby\b\s+\d+/.test(normalized)) {
-    return { type: "TOOL_CALENDAR", confidence: 0.95, reason: "Airport time detected", isSpecialIntent: true };
+    return { 
+      type: "TOOL_CALENDAR", 
+      confidence: 0.95, 
+      reason: "Airport time detected", 
+      isSpecialIntent: true,
+      metadata: { isTransport: true, location: "airport" }
+    };
   }
   if (normalized.includes("call") && (normalized.includes("remind") || /\bcall\s+(the\s+)?(mom|dad|wife|husband|boss|friend|doctor|dentist|him|her|them)\b/.test(normalized))) {
     return { type: "TOOL_CALENDAR", confidence: 0.95, reason: "Call reminder detected", isSpecialIntent: true };

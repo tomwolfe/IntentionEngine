@@ -89,16 +89,3 @@ export async function POST(req: Request) {
     });
   }
 }
-
-
-    return result.toUIMessageStreamResponse({
-      originalMessages: messages,
-    });
-  } catch (error: any) {
-    console.error("Error in chat route:", error);
-    return new Response(JSON.stringify({ error: error.message }), { 
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
-}

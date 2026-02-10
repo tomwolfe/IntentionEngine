@@ -2,9 +2,9 @@ import { z } from "zod";
 import { Tool, ToolResult } from "./types";
 
 const TimezoneParams = z.object({
-  time: z.string().optional().description("ISO time string, defaults to now"),
-  from_tz: z.string().description("Source timezone (e.g., 'America/New_York')"),
-  to_tz: z.string().description("Target timezone (e.g., 'Europe/London')"),
+  time: z.string().optional().describe("ISO time string, defaults to now"),
+  from_tz: z.string().describe("Source timezone (e.g., 'America/New_York')"),
+  to_tz: z.string().describe("Target timezone (e.g., 'Europe/London')"),
 });
 
 type Params = z.infer<typeof TimezoneParams>;

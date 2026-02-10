@@ -118,16 +118,3 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
 
   return plan;
 }
-
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`LLM call failed: ${error}`);
-  }
-
-  const data = await response.json();
-  const planJson = JSON.parse(data.choices[0].message.content);
-  
-  // Validate against schema
-  return PlanSchema.parse(planJson);
-}

@@ -1,7 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { Plan } from "./schema";
 import { env } from "./config";
-import { AuditLog } from "./types";
+import { AuditLog, FailureMemory } from "./types";
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -17,11 +17,13 @@ export async function createAuditLog(
   intent: string, 
   plan?: Plan, 
   userLocation?: { lat: number; lng: number },
-  userId: string = "anonymous"
+  userId: string = "anonymous",
+  parent_id?: string
 ): Promise<AuditLog> {
   const id = Math.random().toString(36).substring(7);
   const log: AuditLog = {
     id,
+    parent_id,
     timestamp: new Date().toISOString(),
     intent,
     plan,
@@ -30,7 +32,8 @@ export async function createAuditLog(
     toolExecutionLatencies: {
       latencies: {},
       totalToolExecutionTime: 0
-    }
+    },
+    replanned_count: 0
   };
 
   if (redis) {
@@ -48,6 +51,46 @@ export async function createAuditLog(
   }
 
   return log;
+}
+
+export async function getRelevantFailures(currentIntent: string, userId: string = "anonymous"): Promise<FailureMemory[]> {
+  if (!redis) return [];
+
+  try {
+    const ids = await redis.lrange(`${USER_LOGS_PREFIX}${userId}`, 0, 19);
+    if (!ids || ids.length === 0) return [];
+
+    const logs = await Promise.all(ids.map(id => getAuditLog(id)));
+    const keywords = currentIntent.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    
+    const relevantFailures: FailureMemory[] = [];
+    
+    for (const log of logs) {
+      if (!log || !log.steps) continue;
+      
+      for (const step of log.steps) {
+        if (step.status === "failed") {
+          const stepContext = `${step.tool_name} ${step.error} ${JSON.stringify(step.input)}`.toLowerCase();
+          if (keywords.some(k => stepContext.includes(k))) {
+            relevantFailures.push({
+              intent_keywords: keywords,
+              failed_tool_name: step.tool_name,
+              error_message: step.error || "Unknown error",
+              input_params: step.input,
+              timestamp: step.timestamp,
+              audit_log_id: log.id,
+              remedy_suggestion: "Validate parameters or try an alternative tool if available."
+            });
+          }
+        }
+      }
+    }
+    
+    return relevantFailures.slice(0, 5);
+  } catch (err) {
+    console.warn(`Failed to fetch relevant failures for ${userId}:`, err);
+    return [];
+  }
 }
 
 export async function getUserAuditLogs(userId: string, limit: number = 5): Promise<AuditLog[]> {

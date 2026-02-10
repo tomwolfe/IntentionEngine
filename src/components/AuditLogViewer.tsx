@@ -26,24 +26,28 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
         {logs.map((log) => {
           const successfulSteps = log.steps.filter(s => s.status === 'executed').length;
           const replans = log.replanned_count || 0;
-          // Efficiency Score: ratio of successful steps to total re-plans
-          // We'll use (success) / (success + replans) as a normalized score
-          const efficiencyScore = (successfulSteps + replans) > 0 
-            ? (successfulSteps / (successfulSteps + replans)).toFixed(2) 
-            : "1.00";
+          
+          // Pillar 1.4: Use stored efficiency_score or fallback to calculation
+          const displayEfficiency = log.efficiency_score !== undefined 
+            ? log.efficiency_score.toFixed(2)
+            : (successfulSteps + replans) > 0 
+              ? (successfulSteps / (successfulSteps + replans)).toFixed(2) 
+              : "1.00";
 
           return (
             <div key={log.id} className="border rounded-lg bg-white overflow-hidden shadow-sm">
               <div className="bg-slate-50 p-4 border-b flex justify-between items-center">
                 <div>
-                  <span className="text-xs font-mono text-slate-400 block uppercase tracking-wider">Session ID: {log.id}</span>
+                  <span className="text-xs font-mono text-slate-400 block uppercase tracking-wider">
+                    ID: {log.id} {log.parent_id ? `(Re-plan of ${log.parent_id})` : ''}
+                  </span>
                   <h3 className="font-bold text-slate-800">"{log.intent}"</h3>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
                   <span className="text-xs text-slate-500 block">{new Date(log.timestamp).toLocaleString()}</span>
                   <div className="flex gap-2 items-center">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-700">
-                      Efficiency: {efficiencyScore}
+                      Efficiency: {displayEfficiency}
                     </span>
                     {log.final_outcome && (
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${

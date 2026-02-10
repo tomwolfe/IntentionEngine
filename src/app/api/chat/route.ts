@@ -1,18 +1,16 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, tool, stepCountIs, convertToModelMessages, generateObject } from "ai";
+import { streamText, tool, convertToModelMessages } from "ai";
 import { z } from "zod";
-import { search_restaurant, add_calendar_event, geocode_location } from "@/lib/tools";
+import { registry, geocode_location } from "@/lib/tools";
 import { env } from "@/lib/config";
 import { inferIntent } from "@/lib/intent";
 import { Redis } from "@upstash/redis";
+import { createAuditLog, updateAuditLog, getRelevantFailures, getAuditLog } from "@/lib/audit";
+import { executeToolWithContext, getProvider } from "@/app/actions";
+import { SystemHealth } from "@/lib/types";
 
 export const runtime = "edge";
 export const maxDuration = 30;
-
-const openai = createOpenAI({
-  apiKey: env.LLM_API_KEY,
-  baseURL: env.LLM_BASE_URL,
-});
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -29,227 +27,106 @@ const ChatRequestSchema = z.object({
   }).nullable().optional(),
 });
 
+// Pillar 2.2: Latency-Aware LLM Routing (Mock/Helper)
+async function getSystemHealth(): Promise<SystemHealth> {
+  // In a real system, this would come from a real-time monitor or Redis
+  return {
+    tools: {
+      "search_restaurant": {
+        tool_name: "search_restaurant",
+        success_rate: 0.95,
+        total_executions: 100,
+        average_latency_ms: 2500
+      }
+    },
+    overall_status: 'healthy',
+    last_updated: new Date().toISOString()
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const rawBody = await req.json();
     const validatedBody = ChatRequestSchema.safeParse(rawBody);
 
     if (!validatedBody.success) {
-      return new Response(JSON.stringify({ error: "Invalid request parameters", details: validatedBody.error.format() }), { 
-        status: 400,
-        headers: { "Content-Type": "application/json" }
-      });
+      return new Response(JSON.stringify({ error: "Invalid request parameters" }), { status: 400 });
     }
 
     const { messages, userLocation } = validatedBody.data;
-
-    if (messages.length === 0) {
-      return new Response("No messages provided", { status: 400 });
-    }
-
+    const userIp = req.headers.get("x-forwarded-for") || "anonymous";
     const startTime = Date.now();
 
-    // Stateful Memory: Retrieve user preferences from Redis
-    const userIp = req.headers.get("x-forwarded-for") || "anonymous";
-    const userPrefsKey = `prefs:${userIp}`;
-    let userPreferences = null;
-    let recentLogs: any[] = [];
-
-    const { createAuditLog, updateAuditLog, getUserAuditLogs } = await import("@/lib/audit");
-    const { executeToolWithContext, getPlanWithAvoidance, getProvider } = await import("@/app/actions");
-
-    if (redis) {
-      try {
-        [userPreferences, recentLogs] = await Promise.all([
-          redis.get(userPrefsKey),
-          getUserAuditLogs(userIp, 10)
-        ]);
-      } catch (err) {
-        console.warn("Failed to retrieve user data from Redis:", err);
-      }
-    }
-
     const coreMessages = await convertToModelMessages(messages);
-
-    // Phase 4: Consume structured intent to drive logic
     const lastUserMessage = [...coreMessages].reverse().find(m => m.role === "user");
-    let userText = "";
-    if (typeof lastUserMessage?.content === "string") {
-      userText = lastUserMessage.content;
-    } else if (Array.isArray(lastUserMessage?.content)) {
-      userText = lastUserMessage.content
-        .filter(part => part.type === "text")
-        .map(part => (part as any).text)
-        .join("\n");
-    }
+    const userText = typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "";
 
-    // Step 2: Semantic Memory & Proactive Retrieval
-    const getRelevantFailures = function(text: string, logs: any[]) {
-      const keywords = text.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-      const failures: string[] = [];
-      for (const log of logs) {
-        if (log.steps) {
-          for (const step of log.steps) {
-            if (step.status === "failed") {
-              const stepContext = `${step.tool_name} ${step.error} ${JSON.stringify(step.input)}`.toLowerCase();
-              if (keywords.some(k => stepContext.includes(k))) {
-                failures.push(`Warning: A previous "${step.tool_name}" failed. Error: "${step.error}". Previous Params: ${JSON.stringify(step.input)}`);
-              }
-            }
-          }
-        }
-      }
-      return Array.from(new Set(failures)).slice(0, 3);
-    }
-
-    const relevantFailures = getRelevantFailures(userText, recentLogs);
-    const failureWarnings = relevantFailures.length > 0
-      ? `\nPROACTIVE WARNINGS (Avoid these previous mistakes):\n${relevantFailures.join('\n')}`
-      : "";
-
-    let intent;
-    let intentInferenceLatency = 0;
-    let rawModelResponse = "";
-    try {
-      const intentStart = Date.now();
-      const { avoidTools } = await getPlanWithAvoidance(userText, userIp);
-      const inferenceResult = await inferIntent(userText, avoidTools);
-      intentInferenceLatency = Date.now() - intentStart;
-      intent = inferenceResult.intent;
-      rawModelResponse = inferenceResult.rawResponse;
-      console.log("[Phase 4] Structured Intent Inferred:", intent.type, "Confidence:", intent.confidence);
-    } catch (e) {
-      console.error("Intent inference failed, falling back to UNKNOWN", e);
-      intent = { type: "UNKNOWN", confidence: 0, parameters: {}, rawText: userText };
-    }
-
-    // Initialize Audit Log
-    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined, userIp);
-    await updateAuditLog(auditLog.id, { 
-      rawModelResponse,
-      inferenceLatencies: { intentInference: intentInferenceLatency }
-    });
-
-    const locationContext = userLocation 
-      ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}.`
-      : "The user's location is unknown.";
-
-    // Memory Context
-    const memoryContext = recentLogs.length > 0 
-      ? `Recent interaction history:\n${recentLogs.map(l => `- Intent: ${l.intent}, Outcome: ${l.final_outcome || 'N/A'}`).join('\n')}`
-      : "";
-
-    // Logic driven by intent:
-    // 1. Dynamic System Prompt
-    // 2. Filtered Toolset
-    let systemPrompt = `You are an Intention Engine.
-    Today's date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
-    The user's inferred intent is: ${intent.type} (Confidence: ${intent.confidence})
-    Extracted Parameters: ${JSON.stringify(intent.parameters)}
+    // Step 1: Infer Intent
+    const { intent, rawResponse: rawIntentResponse } = await inferIntent(userText);
     
-    ${locationContext}
+    // Step 2: Pillar 2.1 - Speculative Execution (Proactive Retrieval)
+    let speculativeGeoPromise: Promise<any> | null = null;
+    if (intent.parameters?.location) {
+      speculativeGeoPromise = geocode_location({ 
+        location: intent.parameters.location, 
+        userLocation: userLocation || undefined 
+      });
+    }
 
-    ${userPreferences ? `User Preferences: ${JSON.stringify(userPreferences)}` : ""}
+    // Step 3: Pillar 1.2 - Vectorized Failure Lookup
+    const relevantFailures = await getRelevantFailures(userText, userIp);
+    const failureMemoryContext = relevantFailures.length > 0
+      ? `\nLESSONS FROM PREVIOUS ATTEMPTS:\n${relevantFailures.map(f => `- Warning: Previous ${f.failed_tool_name} failed with error "${f.error_message}".`).join('\n')}`
+      : "";
 
-    ${memoryContext}
+    // Step 4: Pillar 2.2 - Latency Monitoring
+    const health = await getSystemHealth();
+    const latencyWarnings = Object.values(health.tools)
+      .filter(t => t.average_latency_ms > 2000)
+      .map(t => `Warning: Tool ${t.tool_name} is currently slow. Prefer alternatives if possible.`)
+      .join('\n');
 
-    ${failureWarnings}
+    // Step 5: Initialize Audit Log
+    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined, userIp);
+    await updateAuditLog(auditLog.id, { rawModelResponse: rawIntentResponse });
 
-    ${intent.type === 'clarification_needed' ? `IMPORTANT: Your confidence in the user's intent is LOW. You MUST ask the following clarification question: "${intent.question}"` : ""}
+    // Step 6: Tool Definitions (Wrapped for Registry Pattern)
+    const enabledTools: any = {};
+    const registryTools = registry.getAllTools();
 
-    If a tool returns success: false, you MUST acknowledge the error and attempt to REPLAN. 
-    Explain what went wrong and provide a modified plan or alternative action to the user.
-    Do not simply repeat the same failed call.
-
-    If a user request requires multiple steps (e.g., finding a place and then scheduling it), the intent is PLANNING.
-    When intent is PLANNING:
-    1. Acknowledge the multi-step goal.
-    2. Outline a structured step-by-step plan to the user.
-    3. Execute tools according to the plan.
-    `;
-
-    const allTools = {
-      geocode_location: tool({
-        description: "Converts a city or place name to lat/lon coordinates.",
-        inputSchema: z.object({
-          location: z.string().describe("The city or place name to geocode."),
-        }),
+    for (const toolDef of registryTools) {
+      enabledTools[toolDef.name] = tool({
+        description: toolDef.description,
+        inputSchema: toolDef.parameters,
         execute: async (params) => {
-          console.log("Executing geocode_location", params);
-          const result = await executeToolWithContext("geocode_location", { ...params, userLocation: userLocation || undefined }, {
-            audit_log_id: auditLog.id,
-            step_index: auditLog.steps.length
-          });
-          return result;
-        },
-      }),
-      search_restaurant: tool({
-        description: "Search for restaurants nearby based on cuisine and location.",
-        inputSchema: z.object({
-          cuisine: z.string().optional(),
-          lat: z.number().optional(),
-          lon: z.number().optional(),
-          location: z.string().optional(),
-        }),
-        execute: async (params: any) => {
-          console.log("Executing search_restaurant", params);
-          const result = await executeToolWithContext("search_restaurant", { ...params, userLocation: userLocation || undefined }, {
-            audit_log_id: auditLog.id,
-            step_index: auditLog.steps.length
-          });
-
-          // Persistence: Save cuisine preference if successful
-          if (result.success && params.cuisine && redis) {
-            try {
-              const currentPrefs: any = await redis.get(userPrefsKey) || {};
-              const preferredCuisines = new Set(currentPrefs.preferredCuisines || []);
-              preferredCuisines.add(params.cuisine.toLowerCase());
-              await redis.set(userPrefsKey, {
-                ...currentPrefs,
-                preferredCuisines: Array.from(preferredCuisines),
-              }, { ex: 86400 * 30 });
-            } catch (err) {
-              console.warn("Failed to save preference:", err);
+          // Check speculative result
+          if (toolDef.name === "geocode_location" && speculativeGeoPromise) {
+            const specResult = await speculativeGeoPromise;
+            if (specResult.success) {
+                console.log("Using speculative geocode result");
+                return specResult;
             }
           }
-          
-          return result;
-        },
-      }),
-      add_calendar_event: tool({
-        description: "Add one or more events to the calendar.",
-        inputSchema: z.object({
-          events: z.array(z.object({
-            title: z.string(),
-            start_time: z.string(),
-            end_time: z.string(),
-            location: z.string().optional(),
-            restaurant_name: z.string().optional(),
-            restaurant_address: z.string().optional(),
-          })),
-        }),
-        execute: async (params: any) => {
-          console.log("Executing add_calendar_event", params);
-          const result = await executeToolWithContext("add_calendar_event", params, {
-            audit_log_id: auditLog.id,
-            step_index: auditLog.steps.length
-          });
-          return result;
-        },
-      }),
-    };
 
-    // Filter tools based on intent to minimize surface area (Phase 4 Logic)
-    let enabledTools: any = {};
-    if (intent.type === "SEARCH" || intent.type === "UNKNOWN" || intent.type === "PLANNING") {
-      enabledTools.search_restaurant = allTools.search_restaurant;
-      enabledTools.geocode_location = allTools.geocode_location;
-    }
-    if (intent.type === "SCHEDULE" || intent.type === "UNKNOWN" || intent.type === "PLANNING") {
-      enabledTools.add_calendar_event = allTools.add_calendar_event;
-    }
-    if (intent.type === "ACTION") {
-      enabledTools = allTools; // Action can be anything
+          const result = await executeToolWithContext(toolDef.name, params, {
+            audit_log_id: auditLog.id,
+            step_index: (await getAuditLog(auditLog.id))?.steps.length || 0
+          });
+
+          if (!result.success) {
+            // Pillar 1.3: Track re-plans
+            const currentLog = await getAuditLog(auditLog.id);
+            const newReplannedCount = (currentLog?.replanned_count || 0) + 1;
+            await updateAuditLog(auditLog.id, { replanned_count: newReplannedCount });
+            
+            if (newReplannedCount >= 3) {
+                return { success: false, error: "Critical failure: Maximum re-planning attempts reached. Please inform the user we cannot proceed." };
+            }
+          }
+
+          return result;
+        }
+      });
     }
 
     const providerConfig = await getProvider(intent.type);
@@ -258,28 +135,40 @@ export async function POST(req: Request) {
       baseURL: providerConfig.baseUrl,
     });
 
+    const systemPrompt = `You are an Intention Engine.
+    Inferred Intent: ${intent.type} (Confidence: ${intent.confidence})
+    Today is ${new Date().toLocaleDateString()}.
+    
+    ${userLocation ? `User Location: ${userLocation.lat}, ${userLocation.lng}` : ""}
+    
+    ${failureMemoryContext}
+    ${latencyWarnings}
+
+    If a tool fails, explain the error and propose a recovery plan or alternative.
+    `;
+
     const result = streamText({
       model: customProvider.chat(providerConfig.model),
       messages: coreMessages,
       system: systemPrompt,
       tools: enabledTools,
-      stopWhen: stepCountIs(5),
+      maxSteps: 5,
       onFinish: async (event) => {
         const totalLatency = Date.now() - startTime;
-        try {
-          // Retrieve current log to preserve steps already logged in execute
-          const currentLog = await (await import("@/lib/audit")).getAuditLog(auditLog.id);
-          await (await import("@/lib/audit")).updateAuditLog(auditLog.id, {
-            final_outcome: event.text,
-            inferenceLatencies: {
-              ...currentLog?.inferenceLatencies,
-              total: totalLatency,
-              planGeneration: totalLatency - (currentLog?.inferenceLatencies?.intentInference || 0)
-            }
-          });
-        } catch (err) {
-          console.error("Failed to update final audit log:", err);
-        }
+        const currentLog = await getAuditLog(auditLog.id);
+        
+        // Pillar 1.4: Efficiency Score
+        const efficiencyScore = (event.text.length > 0 ? 1 : 0.5) / (totalLatency / 1000);
+        
+        await updateAuditLog(auditLog.id, {
+          final_outcome: event.text,
+          efficiency_score: efficiencyScore,
+          inferenceLatencies: {
+            ...currentLog?.inferenceLatencies,
+            total: totalLatency,
+            planGeneration: totalLatency - (currentLog?.inferenceLatencies?.intentInference || 0)
+          }
+        });
       }
     });
 

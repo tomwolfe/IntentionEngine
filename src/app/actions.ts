@@ -1,6 +1,6 @@
 "use server";
 
-import { TOOLS, ToolDefinition, ExecuteToolResult } from "@/lib/tools";
+import { registry, ExecuteToolResult } from "@/lib/tools";
 import { getAuditLog, updateAuditLog, getUserAuditLogs } from "@/lib/audit";
 import { replan } from "@/lib/llm";
 import { AuditLog } from "@/lib/types";
@@ -10,7 +10,7 @@ export async function executeToolWithContext(
   parameters: any, 
   context: { audit_log_id: string; step_index: number }
 ): Promise<ExecuteToolResult> {
-  const toolDef = TOOLS.get(tool_name);
+  const toolDef = registry.getTool(tool_name);
   if (!toolDef) {
     throw new Error(`Tool ${tool_name} not found`);
   }
@@ -24,63 +24,33 @@ export async function executeToolWithContext(
     try {
       result = await toolDef.execute(parameters);
       
-      // Technical vs Logical error detection
       const technicalErrorKeywords = ["429", "network", "timeout", "fetch", "socket", "hang up", "overpass api error"];
       const isTechnicalError = !result.success && result.error && technicalErrorKeywords.some(k => result.error.toLowerCase().includes(k));
 
       if (isTechnicalError && attempts < maxRetries - 1) {
-        throw new Error(result.error); // Trigger retry
+        throw new Error(result.error);
       }
       
       break; 
     } catch (error: any) {
       attempts++;
-      const errorMessage = error.message?.toLowerCase() || "";
-      const isRetryable = errorMessage.includes('429') || 
-                          errorMessage.includes('network') || 
-                          errorMessage.includes('timeout') || 
-                          errorMessage.includes('fetch') ||
-                          errorMessage.includes('overpass api error');
-      
-      if (isRetryable && attempts < maxRetries) {
-        const delay = Math.pow(2, attempts) * 1000;
-        console.warn(`Technical error in ${tool_name}, retrying in ${delay}ms... (Attempt ${attempts}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
+      const delay = Math.pow(2, attempts) * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      if (attempts >= maxRetries) {
+        result = { success: false, error: error.message || "Unknown error" };
       }
-      
-      result = { success: false, error: error.message || "Unknown error" };
-      break;
-    }
-  }
-
-  // Schema Enforcement (Phase 1.2)
-  if (result.success && toolDef.responseSchema) {
-    const validation = toolDef.responseSchema.safeParse(result.result);
-    if (!validation.success) {
-      console.error(`Malformed tool output from ${tool_name}:`, validation.error.format());
-      result = { 
-        success: false, 
-        error: `Validation Error: Tool output did not match expected schema. ${JSON.stringify(validation.error.format())}` 
-      };
-    } else {
-        result.result = validation.data;
     }
   }
 
   const duration = Date.now() - startTime;
-
   const log = await getAuditLog(context.audit_log_id);
+  
   if (log) {
     const toolExecutionLatencies = log.toolExecutionLatencies || { latencies: {}, totalToolExecutionTime: 0 };
     const latencies = toolExecutionLatencies.latencies[tool_name] || [];
     latencies.push(duration);
     toolExecutionLatencies.latencies[tool_name] = latencies;
     toolExecutionLatencies.totalToolExecutionTime = (toolExecutionLatencies.totalToolExecutionTime || 0) + duration;
-
-    // Latency Monitoring (Phase 1.3)
-    const total_latency = toolExecutionLatencies.totalToolExecutionTime;
-    const efficiency_flag = total_latency > 5000 ? "LOW" : undefined;
 
     const newStep = {
       step_index: context.step_index,
@@ -98,49 +68,7 @@ export async function executeToolWithContext(
     await updateAuditLog(context.audit_log_id, { 
       toolExecutionLatencies,
       steps: updatedSteps,
-      efficiency_flag: efficiency_flag as any
     });
-
-    if (result.success === false) {
-      console.log(`Tool ${tool_name} returned success: false, triggering re-plan...`);
-      
-      // Determine error type (Phase 1.1)
-      const validationKeywords = ['invalid', 'missing', 'type', 'validation'];
-      const errorType = result.error && validationKeywords.some(k => result.error.toLowerCase().includes(k))
-        ? "validation"
-        : "logic";
-
-      if (log.plan) {
-        try {
-          const errorExplanation = `Step ${context.step_index} (${tool_name}) failed: ${result.error || "Unknown error"}`;
-          console.log(`Re-planning with explanation: ${errorExplanation} (Type: ${errorType})`);
-          
-          const newPlan = await replan(
-            log.intent, 
-            { ...log, steps: updatedSteps }, 
-            context.step_index, 
-            result.error || "Tool returned failure",
-            { parameters, result },
-            errorType as any
-          );
-          
-          await updateAuditLog(context.audit_log_id, {
-            plan: newPlan,
-            replanned_count: (log.replanned_count || 0) + 1,
-            final_outcome: `Re-planned due to failure in ${tool_name}. ${errorExplanation}`
-          });
-
-          return {
-            ...result,
-            replanned: true,
-            new_plan: newPlan,
-            error_explanation: errorExplanation
-          };
-        } catch (replanError: any) {
-          console.error("Re-planning failed after tool failure:", replanError);
-        }
-      }
-    }
   }
 
   return result;

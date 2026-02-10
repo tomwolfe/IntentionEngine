@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuditLog, updateAuditLog } from "@/lib/audit";
-import { executeTool } from "@/lib/tools";
+import { executeStep } from "@/lib/executor";
 import { z } from "zod";
 
 export const runtime = "edge";
@@ -42,15 +42,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Step already executed" }, { status: 400 });
     }
 
-    try {
-      const result = await executeTool(step.tool_name, step.parameters);
-      
+    const executionResult = await executeStep(step);
+
+    if (executionResult.success) {
       const stepLog = {
         step_index,
         tool_name: step.tool_name,
         status: "executed" as const,
         input: step.parameters,
-        output: result,
+        output: executionResult.result,
         confirmed_by_user: user_confirmed,
       };
 
@@ -62,19 +62,19 @@ export async function POST(req: NextRequest) {
         await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
       }
 
-      return NextResponse.json({ result, audit_log_id });
-    } catch (error: any) {
+      return NextResponse.json({ result: executionResult.result, audit_log_id });
+    } else {
       const stepLog = {
         step_index,
         tool_name: step.tool_name,
         status: "failed" as const,
         input: step.parameters,
-        error: error.message,
+        error: executionResult.error,
       };
       const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-      await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: "Failed: Execution error." });
+      await updateAuditLog(audit_log_id, { steps: updatedSteps, final_outcome: `Failed: ${executionResult.error}` });
       
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: executionResult.error }, { status: 500 });
     }
   } catch (error: any) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

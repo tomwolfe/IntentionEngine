@@ -1,47 +1,48 @@
 import { Plan, PlanSchema } from "./schema";
 import { env } from "./config";
+import { getToolDefinitions } from "./tools";
+import { Redis } from "@upstash/redis";
+import { lruCache } from "./cache";
+
+const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
+  ? new Redis({
+      url: env.UPSTASH_REDIS_REST_URL,
+      token: env.UPSTASH_REDIS_REST_TOKEN,
+    })
+  : null;
 
 export async function generatePlan(intent: string, userLocation?: { lat: number; lng: number } | null): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
 
+  // Cache key based on intent and location (rounded to 0.1 degree)
+  const locKey = userLocation ? `${userLocation.lat.toFixed(1)},${userLocation.lng.toFixed(1)}` : "no-loc";
+  const cacheKey = `plan:${intent.toLowerCase().trim()}:${locKey}`;
+
+  if (redis) {
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return PlanSchema.parse(cached);
+    } catch (err) {
+      console.warn("Plan cache read failed:", err);
+    }
+  }
+
+  const localCached = lruCache.get(cacheKey);
+  if (localCached) return PlanSchema.parse(localCached);
+
+  const toolDefinitions = getToolDefinitions();
+  const toolsDescription = toolDefinitions.map(tool => {
+    return `- ${tool.name}: ${tool.description}. Parameters: ${JSON.stringify(tool.parameters.shape)}`;
+  }).join("\n");
+
   const locationContext = userLocation 
     ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}. Use these coordinates for 'nearby' requests.`
     : "The user's location is unknown. If they ask for 'nearby' or don't specify a location, ask for confirmation or use a sensible default like London (51.5074, -0.1278).";
 
   if (!apiKey) {
-    // For demonstration purposes if no API key is provided, we return a mock plan
-    // for the specific example "plan a dinner and add to calendar"
-    if (intent.toLowerCase().includes("dinner") && intent.toLowerCase().includes("calendar")) {
-      return {
-        intent_type: "plan_dinner_and_calendar",
-        constraints: ["dinner time at 7 PM", "cuisine: Italian"],
-        ordered_steps: [
-          {
-            tool_name: "search_restaurant",
-            parameters: { 
-              cuisine: "Italian", 
-              location: "London"
-            },
-            requires_confirmation: false,
-            description: "Search for a highly-rated Italian restaurant in London.",
-          },
-          {
-            tool_name: "add_calendar_event",
-            parameters: { 
-              title: "Dinner at [Restaurant]", 
-              start_time: "2026-02-04T19:00:00", 
-              end_time: "2026-02-04T21:00:00" 
-            },
-            requires_confirmation: true,
-            description: "Add the dinner reservation to your calendar after you select a restaurant.",
-          }
-        ],
-        summary: "I will find an Italian restaurant and then we can add a 7 PM reservation to your calendar."
-      };
-    }
-    throw new Error("LLM_API_KEY is not set and no mock available for this intent.");
+    throw new Error("LLM_API_KEY is not set.");
   }
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -58,7 +59,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
           content: `You are an Intention Engine. Convert user intent into a structured JSON plan.
           Follow this schema strictly:
           {
-            "intent_type": "string (e.g., 'dining', 'scheduling', 'communication')",
+            "intent_type": "string (e.g., 'dining', 'scheduling', 'communication', 'weather', 'lookup')",
             "constraints": ["string array of requirements"],
             "ordered_steps": [
               {
@@ -75,17 +76,13 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
           ${locationContext}
 
           Available tools:
-          - geocode_location(location): Converts a city or place name to lat/lon coordinates.
-          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name).
-          - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address): Adds an event to the calendar.
+          ${toolsDescription}
 
-          Dinner Planning Rules:
-          1. Restaurant search and user confirmation MUST precede calendar event creation.
-          2. Always assume a 2-hour duration for dinner events.
-          3. For romantic dinner requests:
-             - Prioritize 'romantic' atmosphere in search or description.
-             - NEVER suggest pizza or Mexican cuisine.
-          4. When adding a calendar event for a restaurant, include the 'restaurant_name' and 'restaurant_address' in the parameters.
+          Plan Execution Rules:
+          1. If a tool requires confirmation (requires_confirmation: true), it should be clearly marked in the plan.
+          2. Break down complex requests into multiple steps if necessary.
+          3. If the user's intent requires information from a previous step (e.g., coordinates from geocoding), ensure the steps are ordered correctly.
+          4. For dining requests followed by a calendar event, always search for the restaurant first, then add the event.
 
           Return ONLY pure JSON. No free text.`
         },
@@ -97,6 +94,31 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
       response_format: { type: "json_object" }
     }),
   });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`LLM call failed: ${error}`);
+  }
+
+  const data = await response.json();
+  const planJson = JSON.parse(data.choices[0].message.content);
+  
+  // Validate against schema
+  const plan = PlanSchema.parse(planJson);
+
+  // Cache the plan
+  if (redis) {
+    try {
+      await redis.setex(cacheKey, 86400, plan); // 24h TTL
+    } catch (err) {
+      console.warn("Plan cache write failed:", err);
+    }
+  }
+  lruCache.set(cacheKey, plan, 86400);
+
+  return plan;
+}
+
 
   if (!response.ok) {
     const error = await response.text();

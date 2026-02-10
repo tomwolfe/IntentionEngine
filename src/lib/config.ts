@@ -7,6 +7,9 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  GEOCODING_PROVIDER: z.string().default("nominatim"),
+  SEARCH_PROVIDER: z.string().default("overpass"),
+  OPENWEATHER_API_KEY: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

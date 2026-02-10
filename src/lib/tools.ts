@@ -11,11 +11,11 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   : null;
 
 const GeocodeSchema = z.object({
-  location: z.string().min(1),
+  location: z.string().min(1).describe("The city, neighborhood, or specific place name to geocode. Use 'nearby' for the user's current area."),
   userLocation: z.object({
-    lat: z.number(),
-    lng: z.number()
-  }).optional()
+    lat: z.number().describe("User's current latitude"),
+    lng: z.number().describe("User's current longitude")
+  }).optional().describe("The user's current GPS coordinates for biasing search results.")
 });
 
 export async function geocode_location(params: z.infer<typeof GeocodeSchema>) {
@@ -38,11 +38,14 @@ export async function geocode_location(params: z.infer<typeof GeocodeSchema>) {
 
   console.log(`Geocoding location: ${location}...`);
   try {
-    // Bias the search with userLocation if available
+    // Bias the search with userLocation if available using viewbox or context
     let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    
     if (userLocation) {
-      // Nominatim supports viewbox or bounded parameters, but for simple bias we can try to append context
-      // Or just use the userLocation as a fallback if search fails
+      // Use a viewbox around the user's location (approx 0.5 degrees ~ 50km) for biasing
+      const boxSize = 0.5;
+      const viewbox = `${userLocation.lng - boxSize},${userLocation.lat + boxSize},${userLocation.lng + boxSize},${userLocation.lat - boxSize}`;
+      url += `&viewbox=${viewbox}&bounded=0`; // bounded=0 means bias, bounded=1 means strict limit
     }
 
     const response = await fetch(url, {
@@ -67,14 +70,14 @@ export async function geocode_location(params: z.infer<typeof GeocodeSchema>) {
 }
 
 const SearchRestaurantSchema = z.object({
-  cuisine: z.string().optional(),
-  lat: z.number().optional(),
-  lon: z.number().optional(),
-  location: z.string().optional(),
+  cuisine: z.string().optional().describe("The type of cuisine to search for (e.g., 'Italian', 'Sushi', 'Burgers')."),
+  lat: z.number().optional().describe("Latitude for the search center."),
+  lon: z.number().optional().describe("Longitude for the search center."),
+  location: z.string().optional().describe("A text-based location (e.g., 'Soho, London') to search near if coordinates are not provided."),
   userLocation: z.object({
-    lat: z.number(),
-    lng: z.number()
-  }).optional()
+    lat: z.number().describe("User's current latitude"),
+    lng: z.number().describe("User's current longitude")
+  }).optional().describe("The user's current GPS coordinates for proximity biasing.")
 });
 
 export async function search_restaurant(params: z.infer<typeof SearchRestaurantSchema>) {
@@ -209,12 +212,12 @@ export async function search_restaurant(params: z.infer<typeof SearchRestaurantS
 }
 
 const AddCalendarEventSchema = z.object({
-  title: z.string().min(1),
-  start_time: z.string(),
-  end_time: z.string(),
-  location: z.string().optional(),
-  restaurant_name: z.string().optional(),
-  restaurant_address: z.string().optional()
+  title: z.string().min(1).describe("The name or title of the calendar event (e.g., 'Dinner at Nobu')."),
+  start_time: z.string().describe("The start date and time. Use ISO 8601 format (e.g., '2026-02-10T19:00:00Z')."),
+  end_time: z.string().describe("The end date and time. Use ISO 8601 format (e.g., '2026-02-10T21:00:00Z')."),
+  location: z.string().optional().describe("Physical address or venue name for the event."),
+  restaurant_name: z.string().optional().describe("If the event is at a restaurant, its name."),
+  restaurant_address: z.string().optional().describe("If the event is at a restaurant, its full address.")
 });
 
 export async function add_calendar_event(params: z.infer<typeof AddCalendarEventSchema>) {
@@ -277,17 +280,21 @@ export async function executeTool(
     const log = await getAuditLog(context.audit_log_id);
     if (log && log.plan) {
       try {
+        const errorExplanation = `Step ${context.step_index} (${tool_name}) failed: ${result.error || "Unknown error"}`;
+        console.log(`Re-planning with explanation: ${errorExplanation}`);
+        
         const newPlan = await replan(log.intent, log, context.step_index, result.error || "Tool returned failure");
         
         await updateAuditLog(context.audit_log_id, {
           plan: newPlan,
-          final_outcome: `Re-planned due to ${tool_name} failure: ${result.error}`
+          final_outcome: `Re-planned due to failure in ${tool_name}. ${errorExplanation}`
         });
 
         return {
           ...result,
           replanned: true,
-          new_plan: newPlan
+          new_plan: newPlan,
+          error_explanation: errorExplanation
         };
       } catch (replanError: any) {
         console.error("Re-planning failed after tool failure:", replanError);

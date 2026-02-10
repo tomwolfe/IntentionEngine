@@ -14,6 +14,10 @@ export interface AuditLog {
     planGeneration?: number;
     total?: number;
   };
+  toolExecutionLatencies?: {
+    [tool_name: string]: number[];
+    totalToolExecutionTime?: number;
+  };
   validation_error?: string;
   steps: Array<{
     step_index: number;

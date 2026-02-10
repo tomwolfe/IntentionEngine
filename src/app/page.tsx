@@ -195,8 +195,25 @@ export default function Home() {
                           })()}
                         </div>
                       ) : toolInvocation.state === 'output-error' ? (
-                        <div className="text-xs text-red-500 font-mono">
-                          Error: {toolInvocation.errorText}
+                        <div className="bg-red-50 border border-red-100 p-4 rounded-lg space-y-3">
+                          <div className="text-sm text-red-700 font-medium flex items-center gap-2">
+                            <span>Tool Execution Failed</span>
+                          </div>
+                          <p className="text-xs text-red-600 font-mono bg-white p-2 border border-red-50 rounded">
+                            {toolInvocation.errorText}
+                          </p>
+                          <button
+                            onClick={() => {
+                              sendMessage({ 
+                                text: `The tool "${toolName}" failed with error: "${toolInvocation.errorText}". Please retry the operation with appropriate adjustments or more specific parameters.` 
+                              }, {
+                                body: { userLocation }
+                              });
+                            }}
+                            className="text-xs bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors font-bold shadow-sm"
+                          >
+                            Re-try with Context
+                          </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-sm text-slate-500 animate-pulse">

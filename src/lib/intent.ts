@@ -26,14 +26,16 @@ export async function inferIntent(text: string): Promise<IntentInferenceResult> 
     model: customOpenAI(env.LLM_MODEL),
     system: `You are a precision Intent Inference Engine. 
 Your task is to convert raw user text into a structured JSON Intent object.
-- type: Categorize into SCHEDULE, SEARCH, ACTION, QUERY, or UNKNOWN.
+- type: Categorize into SCHEDULE, SEARCH, ACTION, QUERY, PLANNING, or UNKNOWN.
 - confidence: A score between 0 and 1.
 - entities: Extract key variables (e.g., dates, locations, topics).
 - rawText: Exactly match the user's input.
 
+Use PLANNING if the request requires multiple steps (e.g., finding a place and then scheduling it).
+
 Return ONLY valid JSON matching this schema:
 {
-  "type": "SCHEDULE" | "SEARCH" | "ACTION" | "QUERY" | "UNKNOWN",
+  "type": "SCHEDULE" | "SEARCH" | "ACTION" | "QUERY" | "PLANNING" | "UNKNOWN",
   "confidence": number,
   "entities": Record<string, any>,
   "rawText": string

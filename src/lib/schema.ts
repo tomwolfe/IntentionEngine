@@ -9,6 +9,7 @@ export const IntentTypeSchema = z.enum([
   "SEARCH",   // Informational searches or finding physical locations/entities
   "ACTION",   // Requests to perform a specific operation or state change
   "QUERY",    // General knowledge questions or status checks
+  "PLANNING", // Multi-step goals requiring complex orchestration
   "UNKNOWN"   // Fallback when the intent is ambiguous or unsupported
 ]);
 

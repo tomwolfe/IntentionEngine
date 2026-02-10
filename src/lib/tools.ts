@@ -211,7 +211,7 @@ export async function search_restaurant(params: z.infer<typeof SearchRestaurantS
   }
 }
 
-const AddCalendarEventSchema = z.object({
+const EventItemSchema = z.object({
   title: z.string().min(1).describe("The name or title of the calendar event (e.g., 'Dinner at Nobu')."),
   start_time: z.string().describe("The start date and time. Use ISO 8601 format (e.g., '2026-02-10T19:00:00Z')."),
   end_time: z.string().describe("The end date and time. Use ISO 8601 format (e.g., '2026-02-10T21:00:00Z')."),
@@ -220,57 +220,93 @@ const AddCalendarEventSchema = z.object({
   restaurant_address: z.string().optional().describe("If the event is at a restaurant, its full address.")
 });
 
+const AddCalendarEventSchema = z.object({
+  events: z.array(EventItemSchema).min(1).describe("An array of one or more calendar events to schedule.")
+});
+
 export async function add_calendar_event(params: z.infer<typeof AddCalendarEventSchema>) {
   const validated = AddCalendarEventSchema.safeParse(params);
-  if (!validated.success) return { success: false, error: "Invalid parameters" };
-  const data = validated.data;
-  
-  console.log(`Adding calendar event: ${data.title} from ${data.start_time} to ${data.end_time}...`);
-  
-  const description = (data.restaurant_name || data.restaurant_address)
-    ? `Restaurant: ${data.restaurant_name || 'N/A'}\nAddress: ${data.restaurant_address || 'N/A'}`
-    : "";
+  if (!validated.success) {
+    // Fallback for single event if passed directly (for backward compatibility if needed, though we should adhere to schema)
+    const singleEvent = EventItemSchema.safeParse(params);
+    if (singleEvent.success) {
+      params = { events: [singleEvent.data] };
+    } else {
+      return { success: false, error: "Invalid parameters. Expected an array of events." };
+    }
+  } else {
+    params = validated.data;
+  }
 
-  const queryParams = new URLSearchParams({
-    title: data.title,
-    start: data.start_time,
-    end: data.end_time,
-    location: data.location || data.restaurant_address || "",
-    description: description
-  });
+  const { events } = params;
+  
+  console.log(`Adding ${events.length} calendar event(s)...`);
+  
+  const serializedEvents = JSON.stringify(events.map(e => ({
+    title: e.title,
+    start: e.start_time,
+    end: e.end_time,
+    location: e.location || e.restaurant_address || "",
+    description: (e.restaurant_name || e.restaurant_address)
+      ? `Restaurant: ${e.restaurant_name || 'N/A'}\nAddress: ${e.restaurant_address || 'N/A'}`
+      : ""
+  })));
 
   return {
     success: true,
     result: {
       status: "ready",
-      download_url: `/api/download-ics?${queryParams.toString()}`,
-      event_details: {
-        title: data.title,
-        start_time: data.start_time,
-        end_time: data.end_time,
-        location: data.location || data.restaurant_address || "",
-      }
+      count: events.length,
+      download_url: `/api/download-ics?events=${encodeURIComponent(serializedEvents)}`,
+      events: events.map(e => ({
+        title: e.title,
+        start_time: e.start_time,
+        end_time: e.end_time,
+        location: e.location || e.restaurant_address || "",
+      }))
     }
   };
 }
 
-export const TOOLS: Record<string, Function> = {
-  search_restaurant,
-  add_calendar_event,
-  geocode_location,
-};
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: z.ZodObject<any>;
+  execute: (params: any) => Promise<{ success: boolean; result?: any; error?: string }>;
+}
+
+export const TOOLS: Map<string, ToolDefinition> = new Map([
+  ["geocode_location", {
+    name: "geocode_location",
+    description: "Converts a city or place name to lat/lon coordinates.",
+    parameters: GeocodeSchema,
+    execute: geocode_location
+  }],
+  ["search_restaurant", {
+    name: "search_restaurant",
+    description: "Searches for highly-rated restaurants nearby or in a specific location.",
+    parameters: SearchRestaurantSchema,
+    execute: search_restaurant
+  }],
+  ["add_calendar_event", {
+    name: "add_calendar_event",
+    description: "Adds an event to the calendar. Can accept multiple events for bulk scheduling.",
+    parameters: AddCalendarEventSchema,
+    execute: add_calendar_event
+  }]
+]);
 
 export async function executeTool(
   tool_name: string, 
   parameters: any, 
   context?: { audit_log_id: string; step_index: number }
 ) {
-  const tool = TOOLS[tool_name];
-  if (!tool) {
+  const toolDef = TOOLS.get(tool_name);
+  if (!toolDef) {
     throw new Error(`Tool ${tool_name} not found`);
   }
 
-  const result = await tool(parameters);
+  const result = await toolDef.execute(parameters);
 
   if (result.success === false && context) {
     console.log(`Tool ${tool_name} returned success: false, triggering re-plan...`);

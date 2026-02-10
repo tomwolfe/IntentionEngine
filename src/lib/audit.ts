@@ -40,11 +40,13 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   : null;
 
 const AUDIT_LOG_PREFIX = "audit_log:";
+const USER_LOGS_PREFIX = "user_logs:";
 
 export async function createAuditLog(
   intent: string, 
   plan?: Plan, 
-  userLocation?: { lat: number; lng: number }
+  userLocation?: { lat: number; lng: number },
+  userId: string = "anonymous"
 ): Promise<AuditLog> {
   const id = Math.random().toString(36).substring(7);
   const log: AuditLog = {
@@ -58,11 +60,34 @@ export async function createAuditLog(
 
   if (redis) {
     await redis.set(`${AUDIT_LOG_PREFIX}${id}`, JSON.stringify(log), { ex: 86400 * 7 }); // Store for 7 days
+    
+    // Track logs for this user
+    try {
+      await redis.lpush(`${USER_LOGS_PREFIX}${userId}`, id);
+      await redis.ltrim(`${USER_LOGS_PREFIX}${userId}`, 0, 19); // Keep last 20 logs
+    } catch (err) {
+      console.warn("Failed to update user logs index:", err);
+    }
   } else {
     console.warn("Redis not configured, audit log will not be persisted");
   }
 
   return log;
+}
+
+export async function getUserAuditLogs(userId: string, limit: number = 5): Promise<AuditLog[]> {
+  if (!redis) return [];
+
+  try {
+    const ids = await redis.lrange(`${USER_LOGS_PREFIX}${userId}`, 0, limit - 1);
+    if (!ids || ids.length === 0) return [];
+
+    const logs = await Promise.all(ids.map(id => getAuditLog(id)));
+    return logs.filter((log): log is AuditLog => !!log);
+  } catch (err) {
+    console.warn(`Failed to fetch audit logs for user ${userId}:`, err);
+    return [];
+  }
 }
 
 export async function updateAuditLog(id: string, update: Partial<AuditLog>): Promise<void> {

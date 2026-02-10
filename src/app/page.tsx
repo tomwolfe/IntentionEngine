@@ -2,13 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
-import { Trash2, Calendar, MapPin, Loader2 } from "lucide-react";
+import { Trash2, Calendar, MapPin, Loader2, Activity } from "lucide-react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName } from "ai";
+import { AuditLogViewer } from "@/components/AuditLogViewer";
 
 export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [showAudit, setShowAudit] = useState(false);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -17,13 +20,29 @@ export default function Home() {
         error => { console.error("Error getting location", error); }
       );
     }
+    fetchAuditLogs();
   }, []);
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await fetch('/api/audit');
+      const data = await res.json();
+      if (data.logs) {
+        setAuditLogs(data.logs);
+      }
+    } catch (err) {
+      console.error("Failed to fetch audit logs:", err);
+    }
+  };
 
   const { messages, setMessages, status, sendMessage, addToolOutput } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
     }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    onFinish() {
+      fetchAuditLogs();
+    },
     onError(err) {
       console.error("Chat error:", err);
       setError(err.message || "An unexpected error occurred. Please try again.");
@@ -289,7 +308,30 @@ export default function Home() {
             Thinking...
           </div>
         )}
-      </div>
-    </main>
-  );
-}
+            </div>
+      
+            <div className="mt-12 border-t pt-8">
+              <div className="flex justify-between items-center mb-6">
+                <button 
+                  onClick={() => setShowAudit(!showAudit)}
+                  className="flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors font-medium"
+                >
+                  <Activity size={18} />
+                  {showAudit ? "Hide Execution Audit" : "Show Execution Audit"}
+                </button>
+                {showAudit && (
+                  <button 
+                    onClick={fetchAuditLogs}
+                    className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded text-slate-600 transition-colors"
+                  >
+                    Refresh Logs
+                  </button>
+                )}
+              </div>
+              
+              {showAudit && <AuditLogViewer logs={auditLogs} />}
+            </div>
+          </main>
+        );
+      }
+      

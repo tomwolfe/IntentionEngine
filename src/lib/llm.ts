@@ -75,9 +75,9 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
           ${locationContext}
 
           Available tools:
-          - geocode_location(location): Converts a city or place name to lat/lon coordinates. Returns { lat, lon }.
-          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name). Returns a list of restaurants.
-          - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address): Adds an event to the calendar.
+          - geocode_location(location, userLocation: {lat, lng}): Converts a city or place name to lat/lon coordinates. Returns { lat, lon }.
+          - search_restaurant(cuisine, lat, lon, location, userLocation: {lat, lng}): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name). Returns a list of restaurants.
+          - add_calendar_event(events: [{title, start_time, end_time, location, restaurant_name, restaurant_address}]): Adds events to the calendar.
 
           Tool Chaining & Context Injection:
           1. Explicitly map outputs from previous steps to inputs of subsequent steps.
@@ -93,6 +93,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
              - NEVER suggest pizza or Mexican cuisine.
           4. When adding a calendar event for a restaurant, include the 'restaurant_name' and 'restaurant_address' in the parameters.
           5. Always use coordinates from \`geocode_location\` if you use that tool, instead of passing the raw location string to \`search_restaurant\`.
+          6. For 'add_calendar_event', always provide an array of events under the 'events' key.
 
           Return ONLY pure JSON. No free text.`
         },
@@ -126,6 +127,11 @@ export async function replan(originalIntent: string, auditLog: any, failedStepIn
     throw new Error("LLM_API_KEY is not set. Re-planning requires LLM access.");
   }
 
+  // Build a concise summary of the execution history for the LLM
+  const executionHistory = auditLog.steps.map((s: any) => {
+    return `Step ${s.step_index}: ${s.tool_name} -> ${s.status}${s.error ? ` (Error: ${s.error})` : ''}`;
+  }).join('\n');
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -139,13 +145,19 @@ export async function replan(originalIntent: string, auditLog: any, failedStepIn
           role: "system",
           content: `You are an Intention Engine in Re-planning mode.
           A previous plan failed at step ${failedStepIndex}.
-          Error: ${error}
+          Specific Error: ${error}
           
           Original Intent: ${originalIntent}
           
-          Current Audit Log: ${JSON.stringify(auditLog.steps)}
+          Execution History:
+          ${executionHistory}
           
-          Your task is to provide a NEW plan to recover from this error and still fulfill the original intent if possible, or suggest an alternative.
+          Full Audit Log State: ${JSON.stringify(auditLog)}
+          
+          Your task is to provide a NEW plan to recover from this error.
+          - If a tool failed due to missing information, try to find it in a different way or ask (by adding a step that returns what's needed).
+          - If the user's intent cannot be fulfilled exactly, suggest the closest possible alternative.
+          - The new plan will replace the remaining steps of the old plan.
           
           Follow this schema strictly:
           {
@@ -163,9 +175,9 @@ export async function replan(originalIntent: string, auditLog: any, failedStepIn
           }
 
           Available tools:
-          - geocode_location(location)
-          - search_restaurant(cuisine, lat, lon, location)
-          - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address)
+          - geocode_location(location, userLocation: {lat, lng})
+          - search_restaurant(cuisine, lat, lon, location, userLocation: {lat, lng})
+          - add_calendar_event(events: [{title, start_time, end_time, location, restaurant_name, restaurant_address}])
 
           Return ONLY pure JSON.`
         }

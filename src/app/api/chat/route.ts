@@ -53,11 +53,19 @@ export async function POST(req: Request) {
     const userIp = req.headers.get("x-forwarded-for") || "anonymous";
     const userPrefsKey = `prefs:${userIp}`;
     let userPreferences = null;
+    let recentLogs: any[] = [];
+
+    const { createAuditLog, updateAuditLog, getUserAuditLogs } = await import("@/lib/audit");
+    const { executeTool } = await import("@/lib/tools");
+
     if (redis) {
       try {
-        userPreferences = await redis.get(userPrefsKey);
+        [userPreferences, recentLogs] = await Promise.all([
+          redis.get(userPrefsKey),
+          getUserAuditLogs(userIp, 5)
+        ]);
       } catch (err) {
-        console.warn("Failed to retrieve user preferences from Redis:", err);
+        console.warn("Failed to retrieve user data from Redis:", err);
       }
     }
 
@@ -87,12 +95,11 @@ export async function POST(req: Request) {
       console.log("[Phase 4] Structured Intent Inferred:", intent.type, "Confidence:", intent.confidence);
     } catch (e) {
       console.error("Intent inference failed, falling back to UNKNOWN", e);
-      intent = { type: "UNKNOWN", confidence: 0, entities: {}, rawText: userText };
+      intent = { type: "UNKNOWN", confidence: 0, parameters: {}, rawText: userText };
     }
 
     // Initialize Audit Log
-    const { createAuditLog, updateAuditLog } = await import("@/lib/audit");
-    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined);
+    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined, userIp);
     await updateAuditLog(auditLog.id, { 
       rawModelResponse,
       inferenceLatencies: { intentInference: intentInferenceLatency }
@@ -102,17 +109,24 @@ export async function POST(req: Request) {
       ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}.`
       : "The user's location is unknown.";
 
+    // Memory Context
+    const memoryContext = recentLogs.length > 0 
+      ? `Recent interaction history:\n${recentLogs.map(l => `- Intent: ${l.intent}, Outcome: ${l.final_outcome || 'N/A'}`).join('\n')}`
+      : "";
+
     // Logic driven by intent:
     // 1. Dynamic System Prompt
     // 2. Filtered Toolset
     let systemPrompt = `You are an Intention Engine.
     Today's date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
     The user's inferred intent is: ${intent.type} (Confidence: ${intent.confidence})
-    Extracted Entities: ${JSON.stringify(intent.entities)}
+    Extracted Parameters: ${JSON.stringify(intent.parameters)}
     
     ${locationContext}
 
     ${userPreferences ? `User Preferences: ${JSON.stringify(userPreferences)}` : ""}
+
+    ${memoryContext}
 
     If a tool returns success: false, you MUST acknowledge the error and attempt to REPLAN. 
     Explain what went wrong and provide a modified plan or alternative action to the user.
@@ -127,79 +141,32 @@ export async function POST(req: Request) {
 
     const allTools = {
       geocode_location: tool({
-        description: "Converts a city or place name to lat/lon coordinates. Use this when a specific location is mentioned but coordinates are unknown.",
+        description: "Converts a city or place name to lat/lon coordinates.",
         inputSchema: z.object({
-          location: z.string().describe("The city or place name to geocode. Use 'nearby' if the user's current location is intended."),
+          location: z.string().describe("The city or place name to geocode."),
         }),
         execute: async (params) => {
-          const toolStartTime = Date.now();
           console.log("Executing geocode_location", params);
-          const result = await geocode_location({ ...params, userLocation: userLocation || undefined });
-          const toolLatency = Date.now() - toolStartTime;
-          
-          // Log tool execution
-          const currentLog = await (await import("@/lib/audit")).getAuditLog(auditLog.id);
-          const toolExecutionLatencies = currentLog?.toolExecutionLatencies || { latencies: {}, totalToolExecutionTime: 0 };
-          const toolLatencies = toolExecutionLatencies.latencies["geocode_location"] || [];
-          
-          await updateAuditLog(auditLog.id, {
-            steps: [...(auditLog.steps || []), {
-              step_index: auditLog.steps.length,
-              tool_name: "geocode_location",
-              status: result.success ? "executed" : "failed",
-              input: params,
-              output: result.result,
-              error: result.error,
-              timestamp: new Date().toISOString()
-            }],
-            toolExecutionLatencies: {
-              latencies: {
-                ...toolExecutionLatencies.latencies,
-                "geocode_location": [...toolLatencies, toolLatency],
-              },
-              totalToolExecutionTime: (toolExecutionLatencies.totalToolExecutionTime || 0) + toolLatency
-            }
+          const result = await executeTool("geocode_location", { ...params, userLocation: userLocation || undefined }, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
           });
-
           return result;
         },
       }),
       search_restaurant: tool({
-        description: "Search for restaurants nearby based on cuisine and location. Always prefer using lat/lon if available.",
+        description: "Search for restaurants nearby based on cuisine and location.",
         inputSchema: z.object({
-          cuisine: z.string().optional().describe("The type of cuisine, e.g. 'Italian', 'Sushi'"),
-          lat: z.number().optional().describe("The latitude coordinate"),
-          lon: z.number().optional().describe("The longitude coordinate"),
-          location: z.string().optional().describe("The city or place name if lat/lon are not available. Use 'nearby' if applicable."),
+          cuisine: z.string().optional(),
+          lat: z.number().optional(),
+          lon: z.number().optional(),
+          location: z.string().optional(),
         }),
         execute: async (params: any) => {
-          const toolStartTime = Date.now();
           console.log("Executing search_restaurant", params);
-          const result = await search_restaurant({ ...params, userLocation: userLocation || undefined });
-          const toolLatency = Date.now() - toolStartTime;
-          
-          // Log tool execution
-          const currentLog = await (await import("@/lib/audit")).getAuditLog(auditLog.id);
-          const toolExecutionLatencies = currentLog?.toolExecutionLatencies || { latencies: {}, totalToolExecutionTime: 0 };
-          const toolLatencies = toolExecutionLatencies.latencies["search_restaurant"] || [];
-
-          await updateAuditLog(auditLog.id, {
-            steps: [...(auditLog.steps || []), {
-              step_index: auditLog.steps.length,
-              tool_name: "search_restaurant",
-              status: result.success ? "executed" : "failed",
-              input: params,
-              output: result.result,
-              error: result.error,
-              timestamp: new Date().toISOString()
-            }],
-            toolExecutionLatencies: {
-              latencies: {
-                ...toolExecutionLatencies.latencies,
-                "search_restaurant": [...toolLatencies, toolLatency],
-              },
-              totalToolExecutionTime: (toolExecutionLatencies.totalToolExecutionTime || 0) + toolLatency
-            }
+          const result = await executeTool("search_restaurant", { ...params, userLocation: userLocation || undefined }, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
           });
 
           // Persistence: Save cuisine preference if successful
@@ -208,21 +175,12 @@ export async function POST(req: Request) {
               const currentPrefs: any = await redis.get(userPrefsKey) || {};
               const preferredCuisines = new Set(currentPrefs.preferredCuisines || []);
               preferredCuisines.add(params.cuisine.toLowerCase());
-              
-              // Also save the last successful restaurant search result as a preference
-              const lastResults = Array.isArray(result.result) ? result.result.slice(0, 3) : [];
-              
               await redis.set(userPrefsKey, {
                 ...currentPrefs,
                 preferredCuisines: Array.from(preferredCuisines),
-                lastSuccessfulSearch: {
-                  cuisine: params.cuisine,
-                  results: lastResults,
-                  timestamp: new Date().toISOString()
-                }
-              }, { ex: 86400 * 30 }); // Save for 30 days
+              }, { ex: 86400 * 30 });
             } catch (err) {
-              console.warn("Failed to save user preference to Redis:", err);
+              console.warn("Failed to save preference:", err);
             }
           }
           
@@ -230,71 +188,23 @@ export async function POST(req: Request) {
         },
       }),
       add_calendar_event: tool({
-        description: "Add an event to the user's calendar. Requires a title, start time, and end time.",
+        description: "Add one or more events to the calendar.",
         inputSchema: z.object({
-          title: z.string().describe("The title of the event"),
-          start_time: z.string().describe("The start time MUST be a valid ISO 8601 string."),
-          end_time: z.string().describe("The end time MUST be a valid ISO 8601 string."),
-          location: z.string().optional().describe("The location of the event"),
-          restaurant_name: z.string().optional().describe("Name of the restaurant"),
-          restaurant_address: z.string().optional().describe("Address of the restaurant"),
+          events: z.array(z.object({
+            title: z.string(),
+            start_time: z.string(),
+            end_time: z.string(),
+            location: z.string().optional(),
+            restaurant_name: z.string().optional(),
+            restaurant_address: z.string().optional(),
+          })),
         }),
         execute: async (params: any) => {
-          const toolStartTime = Date.now();
           console.log("Executing add_calendar_event", params);
-          
-          // Temporal Awareness: Normalize relative dates to ISO strings
-          const isISO = (str: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(str);
-          
-          if (!isISO(params.start_time) || !isISO(params.end_time)) {
-            console.log("Normalizing relative dates...");
-            try {
-              const { object: normalized } = await generateObject({
-                model: openai.chat(env.LLM_MODEL),
-                system: `You are a temporal normalization expert. 
-                Today is ${new Date().toISOString()}.
-                Convert the provided start and end times into valid ISO 8601 strings.`,
-                schema: z.object({
-                  start_time: z.string(),
-                  end_time: z.string(),
-                }),
-                prompt: `Normalize these times: Start: "${params.start_time}", End: "${params.end_time}"`,
-              });
-              params.start_time = normalized.start_time;
-              params.end_time = normalized.end_time;
-              console.log("Normalized dates:", params.start_time, params.end_time);
-            } catch (err) {
-              console.warn("Date normalization failed, proceeding with raw strings:", err);
-            }
-          }
-          
-          const result = await add_calendar_event(params);
-          const toolLatency = Date.now() - toolStartTime;
-
-          // Log tool execution
-          const currentLog = await (await import("@/lib/audit")).getAuditLog(auditLog.id);
-          const toolExecutionLatencies = currentLog?.toolExecutionLatencies || { latencies: {}, totalToolExecutionTime: 0 };
-          const toolLatencies = toolExecutionLatencies.latencies["add_calendar_event"] || [];
-
-          await updateAuditLog(auditLog.id, {
-            steps: [...(auditLog.steps || []), {
-              step_index: auditLog.steps.length,
-              tool_name: "add_calendar_event",
-              status: result.success ? "executed" : "failed",
-              input: params,
-              output: result.result,
-              error: result.error,
-              timestamp: new Date().toISOString()
-            }],
-            toolExecutionLatencies: {
-              latencies: {
-                ...toolExecutionLatencies.latencies,
-                "add_calendar_event": [...toolLatencies, toolLatency],
-              },
-              totalToolExecutionTime: (toolExecutionLatencies.totalToolExecutionTime || 0) + toolLatency
-            }
+          const result = await executeTool("add_calendar_event", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
           });
-
           return result;
         },
       }),

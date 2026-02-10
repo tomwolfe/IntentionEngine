@@ -22,7 +22,7 @@ export type IntentType = z.infer<typeof IntentTypeSchema>;
 export const IntentSchema = z.object({
   type: IntentTypeSchema,
   confidence: z.number().min(0).max(1), // 0 to 1 score of how certain the model is
-  entities: z.record(z.string(), z.any()), // Key-value map of extracted parameters (e.g., date, location)
+  parameters: z.record(z.string(), z.any()), // Key-value map of extracted parameters (e.g., date, location)
   rawText: z.string(), // The original input that generated this intent
 });
 

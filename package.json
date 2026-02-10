@@ -1,22 +1,29 @@
 {
   "name": "intentionengine",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "A modern Intention Engine built with Next.js 16, React 19, and Vercel AI SDK",
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tomwolfe/IntentionEngine.git"
   },
-  "keywords": [],
+  "keywords": [
+    "ai",
+    "agent",
+    "intention-engine",
+    "nextjs",
+    "react",
+    "vercel-ai-sdk"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "bugs": {
     "url": "https://github.com/tomwolfe/IntentionEngine/issues"
   },
@@ -26,23 +33,23 @@
     "@ai-sdk/react": "^3.0.71",
     "ai": "^6.0.69",
     "clsx": "^2.1.1",
-    "lucide-react": "^0.563.0",
-    "next": "^16.1.6",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.4.0",
-    "zod": "^4.3.6"
+    "lucide-react": "^0.468.0",
+    "next": "^16.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
-    "@types/node": "^25.2.0",
-    "@types/react": "^19.2.10",
-    "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.4.24",
-    "eslint": "^9.39.2",
-    "eslint-config-next": "^16.1.6",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^16.1.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0"
   }
 }

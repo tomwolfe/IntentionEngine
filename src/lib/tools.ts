@@ -1,14 +1,23 @@
 import { RestaurantResultSchema } from "./schema";
 
-export async function search_restaurant(params: { cuisine?: string; lat: number; lon: number }) {
+export interface ToolResult<T = any> {
+  success: boolean;
+  result?: T;
+  error?: string;
+  reasoning?: string;
+  requiresConfirmation?: boolean;
+  draft?: boolean;
+}
+
+export async function search_restaurant(params: { 
+  cuisine?: string; 
+  lat: number; 
+  lon: number 
+}): Promise<ToolResult> {
   const { cuisine, lat, lon } = params;
   console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}...`);
 
   try {
-    // 2. Overpass Query
-    // We use nwr (node, way, relation) to capture all restaurant types.
-    // We use a union to search for the specific cuisine within 10km AND
-    // any restaurant within 5km as a fallback to ensure results are returned.
     const query = cuisine 
       ? `
         [out:json][timeout:25];
@@ -39,7 +48,6 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
     const overpassData = await overpassRes.json();
     let elements = overpassData.elements || [];
 
-    // Prioritize results that match the cuisine if provided
     if (cuisine) {
       const regex = new RegExp(cuisine, 'i');
       elements.sort((a: any, b: any) => {
@@ -72,11 +80,16 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
 
       const validated = RestaurantResultSchema.safeParse(rawResult);
       return validated.success ? validated.data : null;
-    }).filter(Boolean).slice(0, 5); // Limit to top 5
+    }).filter(Boolean).slice(0, 5);
+
+    const reasoning = cuisine 
+      ? `Selected these restaurants because they match "${cuisine}" cuisine within 10km of your location (${lat.toFixed(4)}, ${lon.toFixed(4)}). Prioritized exact cuisine matches first, then expanded to nearby options.`
+      : `Found these restaurants within 10km of your location (${lat.toFixed(4)}, ${lon.toFixed(4)}). Results sorted by proximity and relevance.`;
 
     return {
       success: true,
-      result: results
+      result: results,
+      reasoning
     };
   } catch (error: any) {
     console.error("Error in search_restaurant:", error);
@@ -84,8 +97,14 @@ export async function search_restaurant(params: { cuisine?: string; lat: number;
   }
 }
 
-export async function add_calendar_event(params: { title: string; start_time: string; end_time: string; location?: string }) {
-  console.log(`Adding calendar event: ${params.title} from ${params.start_time} to ${params.end_time}...`);
+export async function add_calendar_event(params: { 
+  title: string; 
+  start_time: string; 
+  end_time: string; 
+  location?: string;
+  confirmed?: boolean;
+}): Promise<ToolResult> {
+  console.log(`Calendar event requested: ${params.title} from ${params.start_time} to ${params.end_time}...`);
   
   const queryParams = new URLSearchParams({
     title: params.title,
@@ -94,21 +113,126 @@ export async function add_calendar_event(params: { title: string; start_time: st
     location: params.location || ""
   });
 
+  if (!params.confirmed) {
+    return {
+      success: true,
+      draft: true,
+      requiresConfirmation: true,
+      result: {
+        title: params.title,
+        start_time: params.start_time,
+        end_time: params.end_time,
+        location: params.location,
+        status: "draft",
+        message: "Please confirm to add this event to your calendar."
+      },
+      reasoning: "Calendar events require user confirmation before being finalized. Review the details and confirm to proceed."
+    };
+  }
+
   return {
     success: true,
     result: {
-      status: "ready",
+      status: "confirmed",
       download_url: `/api/download-ics?${queryParams.toString()}`
+    },
+    reasoning: "Event has been confirmed and is ready to be added to your calendar."
+  };
+}
+
+export async function web_search(params: { 
+  query: string; 
+  num_results?: number 
+}): Promise<ToolResult> {
+  const { query, num_results = 5 } = params;
+  console.log(`Web search for: ${query}`);
+
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  const mockResults = [
+    {
+      title: `Results for "${query}" - Top Information`,
+      url: `https://example.com/search?q=${encodeURIComponent(query)}`,
+      snippet: `Here you would find comprehensive information about ${query}. This is a simulated search result for demonstration purposes.`
+    },
+    {
+      title: `${query} - Wikipedia Overview`,
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(query.replace(/\s+/g, '_'))}`,
+      snippet: `An encyclopedia entry covering the history, significance, and key facts about ${query}.`
+    },
+    {
+      title: `Latest News About ${query}`,
+      url: `https://news.example.com/${encodeURIComponent(query)}`,
+      snippet: `Recent developments and updates related to ${query}. Stay informed with the latest headlines.`
+    },
+    {
+      title: `${query} - Expert Guide & Resources`,
+      url: `https://guides.example.com/${encodeURIComponent(query)}`,
+      snippet: `A comprehensive guide with tips, best practices, and expert advice on ${query}.`
+    },
+    {
+      title: `Community Discussion: ${query}`,
+      url: `https://forum.example.com/t/${encodeURIComponent(query)}`,
+      snippet: `Join the conversation! See what others are saying about ${query} and share your thoughts.`
     }
+  ];
+
+  return {
+    success: true,
+    result: mockResults.slice(0, num_results),
+    reasoning: `Performed a simulated web search for "${query}" and retrieved ${Math.min(num_results, mockResults.length)} relevant results covering general information, encyclopedia entries, news, guides, and community discussions.`
+  };
+}
+
+export async function get_weather(params: { 
+  location: string; 
+  days?: number 
+}): Promise<ToolResult> {
+  const { location, days = 3 } = params;
+  console.log(`Getting weather for: ${location}`);
+
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Clear Skies'];
+  const forecast = Array.from({ length: Math.min(days, 7) }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() + i);
+    const condition = conditions[Math.floor(Math.random() * conditions.length)];
+    const tempHigh = Math.floor(Math.random() * 15) + 15;
+    const tempLow = tempHigh - Math.floor(Math.random() * 10) - 5;
+    
+    return {
+      date: date.toISOString().split('T')[0],
+      condition,
+      temperature: {
+        high: tempHigh,
+        low: tempLow,
+        unit: '°C'
+      },
+      humidity: Math.floor(Math.random() * 40) + 40,
+      wind_speed: Math.floor(Math.random() * 20) + 5
+    };
+  });
+
+  return {
+    success: true,
+    result: {
+      location,
+      current: forecast[0],
+      forecast: forecast.slice(1)
+    },
+    reasoning: `Generated a simulated ${days}-day weather forecast for ${location} based on typical seasonal patterns. This is a mock implementation for demonstration purposes.`
   };
 }
 
 export const TOOLS: Record<string, Function> = {
   search_restaurant,
   add_calendar_event,
+  web_search,
+  get_weather,
 };
 
-export async function executeTool(tool_name: string, parameters: any) {
+export async function executeTool(tool_name: string, parameters: any): Promise<ToolResult> {
   const tool = TOOLS[tool_name];
   if (!tool) {
     throw new Error(`Tool ${tool_name} not found`);

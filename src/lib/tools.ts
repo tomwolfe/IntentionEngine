@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { RestaurantResultSchema } from "./schema";
 
 export interface ToolResult<T = any> {
@@ -9,233 +10,246 @@ export interface ToolResult<T = any> {
   draft?: boolean;
 }
 
-export async function search_restaurant(params: { 
-  cuisine?: string; 
-  lat: number; 
-  lon: number 
-}): Promise<ToolResult> {
-  const { cuisine, lat, lon } = params;
-  console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}...`);
-
-  try {
-    const query = cuisine 
-      ? `
-        [out:json][timeout:25];
-        (
-          nwr["amenity"="restaurant"]["cuisine"~"${cuisine}",i](around:10000,${lat},${lon});
-          nwr["amenity"="restaurant"](around:5000,${lat},${lon});
+export const tools = {
+  get_weather: {
+    description: "Get weather forecast for a specific location using real-time data from Open-Meteo.",
+    parameters: z.object({
+      location: z.string().describe("The city name or location to get weather for"),
+      days: z.number().optional().default(3).describe("Number of forecast days (1-7)"),
+    }),
+    execute: async ({ location, days }: { location: string; days: number }): Promise<ToolResult> => {
+      console.log(`Getting weather for: ${location}`);
+      try {
+        // 1. Geocoding
+        const geoRes = await fetch(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`
         );
-        out center 10;
-      `
-      : `
-        [out:json][timeout:25];
-        nwr["amenity"="restaurant"](around:10000,${lat},${lon});
-        out center 10;
-      `;
-
-    const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-    const overpassRes = await fetch(overpassUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    
-    if (!overpassRes.ok) {
-      throw new Error(`Overpass API error: ${overpassRes.statusText}`);
-    }
-
-    const overpassData = await overpassRes.json();
-    let elements = overpassData.elements || [];
-
-    if (cuisine) {
-      const regex = new RegExp(cuisine, 'i');
-      elements.sort((a: any, b: any) => {
-        const aCuisine = a.tags?.cuisine || '';
-        const bCuisine = b.tags?.cuisine || '';
-        const aMatches = regex.test(aCuisine);
-        const bMatches = regex.test(bCuisine);
-        if (aMatches && !bMatches) return -1;
-        if (!aMatches && bMatches) return 1;
-        return 0;
-      });
-    }
-
-    const results = elements.map((el: any) => {
-      const name = el.tags.name || "Unknown Restaurant";
-      const addr = [
-        el.tags["addr:housenumber"],
-        el.tags["addr:street"],
-        el.tags["addr:city"]
-      ].filter(Boolean).join(" ") || "Address not available";
-
-      const rawResult = {
-        name,
-        address: addr,
-        coordinates: {
-          lat: parseFloat(el.lat || el.center?.lat),
-          lon: parseFloat(el.lon || el.center?.lon)
+        const geoData = await geoRes.json();
+        
+        if (!geoData.results || geoData.results.length === 0) {
+          throw new Error(`Location "${location}" not found.`);
         }
-      };
 
-      const validated = RestaurantResultSchema.safeParse(rawResult);
-      return validated.success ? validated.data : null;
-    }).filter(Boolean).slice(0, 5);
+        const { latitude, longitude, name, country } = geoData.results[0];
 
-    const reasoning = cuisine 
-      ? `Selected these restaurants because they match "${cuisine}" cuisine within 10km of your location (${lat.toFixed(4)}, ${lon.toFixed(4)}). Prioritized exact cuisine matches first, then expanded to nearby options.`
-      : `Found these restaurants within 10km of your location (${lat.toFixed(4)}, ${lon.toFixed(4)}). Results sorted by proximity and relevance.`;
+        // 2. Weather Forecast
+        const weatherRes = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&current_weather=true&timezone=auto`
+        );
+        const weatherData = await weatherRes.json();
 
-    return {
-      success: true,
-      result: results,
-      reasoning
-    };
-  } catch (error: any) {
-    console.error("Error in search_restaurant:", error);
-    return { success: false, error: error.message };
-  }
-}
+        const weatherCodeMap: Record<number, string> = {
+          0: "Clear sky",
+          1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+          45: "Fog", 48: "Depositing rime fog",
+          51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+          61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+          71: "Slight snow fall", 73: "Moderate snow fall", 75: "Heavy snow fall",
+          95: "Thunderstorm",
+        };
 
-export async function add_calendar_event(params: { 
-  title: string; 
-  start_time: string; 
-  end_time: string; 
-  location?: string;
-  confirmed?: boolean;
-}): Promise<ToolResult> {
-  console.log(`Calendar event requested: ${params.title} from ${params.start_time} to ${params.end_time}...`);
-  
-  const queryParams = new URLSearchParams({
-    title: params.title,
-    start: params.start_time,
-    end: params.end_time,
-    location: params.location || ""
-  });
+        const forecast = weatherData.daily.time.slice(0, days).map((date: string, i: number) => ({
+          date,
+          condition: weatherCodeMap[weatherData.daily.weathercode[i]] || "Cloudy",
+          temperature: {
+            high: weatherData.daily.temperature_2m_max[i],
+            low: weatherData.daily.temperature_2m_min[i],
+            unit: '°C'
+          }
+        }));
 
-  if (!params.confirmed) {
-    return {
-      success: true,
-      draft: true,
-      requiresConfirmation: true,
-      result: {
-        title: params.title,
-        start_time: params.start_time,
-        end_time: params.end_time,
-        location: params.location,
-        status: "draft",
-        message: "Please confirm to add this event to your calendar."
-      },
-      reasoning: "Calendar events require user confirmation before being finalized. Review the details and confirm to proceed."
-    };
-  }
-
-  return {
-    success: true,
-    result: {
-      status: "confirmed",
-      download_url: `/api/download-ics?${queryParams.toString()}`
-    },
-    reasoning: "Event has been confirmed and is ready to be added to your calendar."
-  };
-}
-
-export async function web_search(params: { 
-  query: string; 
-  num_results?: number 
-}): Promise<ToolResult> {
-  const { query, num_results = 5 } = params;
-  console.log(`Web search for: ${query}`);
-
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  const mockResults = [
-    {
-      title: `Results for "${query}" - Top Information`,
-      url: `https://example.com/search?q=${encodeURIComponent(query)}`,
-      snippet: `Here you would find comprehensive information about ${query}. This is a simulated search result for demonstration purposes.`
-    },
-    {
-      title: `${query} - Wikipedia Overview`,
-      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(query.replace(/\s+/g, '_'))}`,
-      snippet: `An encyclopedia entry covering the history, significance, and key facts about ${query}.`
-    },
-    {
-      title: `Latest News About ${query}`,
-      url: `https://news.example.com/${encodeURIComponent(query)}`,
-      snippet: `Recent developments and updates related to ${query}. Stay informed with the latest headlines.`
-    },
-    {
-      title: `${query} - Expert Guide & Resources`,
-      url: `https://guides.example.com/${encodeURIComponent(query)}`,
-      snippet: `A comprehensive guide with tips, best practices, and expert advice on ${query}.`
-    },
-    {
-      title: `Community Discussion: ${query}`,
-      url: `https://forum.example.com/t/${encodeURIComponent(query)}`,
-      snippet: `Join the conversation! See what others are saying about ${query} and share your thoughts.`
+        return {
+          success: true,
+          result: {
+            location: `${name}, ${country}`,
+            current: {
+              condition: weatherCodeMap[weatherData.current_weather.weathercode] || "Clear",
+              temperature: weatherData.current_weather.temperature,
+              wind_speed: weatherData.current_weather.windspeed,
+              unit: '°C'
+            },
+            forecast
+          },
+          reasoning: `Retrieved live weather data for ${name}, ${country} via Open-Meteo. Currently ${weatherData.current_weather.temperature}°C and ${weatherCodeMap[weatherData.current_weather.weathercode] || 'clear'}.`
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
     }
-  ];
+  },
 
-  return {
-    success: true,
-    result: mockResults.slice(0, num_results),
-    reasoning: `Performed a simulated web search for "${query}" and retrieved ${Math.min(num_results, mockResults.length)} relevant results covering general information, encyclopedia entries, news, guides, and community discussions.`
-  };
-}
+  web_search: {
+    description: "Search the web for real-time information using Tavily API.",
+    parameters: z.object({
+      query: z.string().describe("The search query"),
+    }),
+    execute: async ({ query }: { query: string }): Promise<ToolResult> => {
+      console.log(`Web search for: ${query}`);
+      const apiKey = process.env.TAVILY_API_KEY;
+      
+      if (!apiKey) {
+        return { success: false, error: "Tavily API key not configured." };
+      }
 
-export async function get_weather(params: { 
-  location: string; 
-  days?: number 
-}): Promise<ToolResult> {
-  const { location, days = 3 } = params;
-  console.log(`Getting weather for: ${location}`);
+      try {
+        const response = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            api_key: apiKey,
+            query,
+            search_depth: "regular",
+            include_answer: true,
+            max_results: 5
+          })
+        });
 
-  await new Promise(resolve => setTimeout(resolve, 300));
+        const data = await response.json();
+        
+        return {
+          success: true,
+          result: data.results.map((r: any) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.content
+          })),
+          reasoning: `Performed a live web search for "${query}" using Tavily. Found ${data.results.length} relevant results.`
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }
+  },
 
-  const conditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Clear Skies'];
-  const forecast = Array.from({ length: Math.min(days, 7) }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-    const condition = conditions[Math.floor(Math.random() * conditions.length)];
-    const tempHigh = Math.floor(Math.random() * 15) + 15;
-    const tempLow = tempHigh - Math.floor(Math.random() * 10) - 5;
-    
-    return {
-      date: date.toISOString().split('T')[0],
-      condition,
-      temperature: {
-        high: tempHigh,
-        low: tempLow,
-        unit: '°C'
-      },
-      humidity: Math.floor(Math.random() * 40) + 40,
-      wind_speed: Math.floor(Math.random() * 20) + 5
-    };
-  });
+  search_restaurant: {
+    description: "Search for restaurants nearby based on cuisine and location using OpenStreetMap data.",
+    parameters: z.object({
+      cuisine: z.string().optional().describe("The type of cuisine, e.g. 'Italian', 'Sushi'"),
+      lat: z.number().describe("The latitude coordinate"),
+      lon: z.number().describe("The longitude coordinate"),
+    }),
+    execute: async ({ cuisine, lat, lon }: { cuisine?: string; lat: number; lon: number }): Promise<ToolResult> => {
+      console.log(`Searching for ${cuisine || 'restaurants'} near ${lat}, ${lon}...`);
+      try {
+        const query = cuisine 
+          ? `[out:json][timeout:25];(nwr["amenity"="restaurant"]["cuisine"~"${cuisine}",i](around:10000,${lat},${lon});nwr["amenity"="restaurant"](around:5000,${lat},${lon}););out center 10;`
+          : `[out:json][timeout:25];nwr["amenity"="restaurant"](around:10000,${lat},${lon});out center 10;`;
 
-  return {
-    success: true,
-    result: {
-      location,
-      current: forecast[0],
-      forecast: forecast.slice(1)
+        const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+        const overpassRes = await fetch(overpassUrl);
+        const overpassData = await overpassRes.json();
+        
+        const results = (overpassData.elements || []).map((el: any) => ({
+          name: el.tags.name || "Unknown Restaurant",
+          address: [el.tags["addr:housenumber"], el.tags["addr:street"], el.tags["addr:city"]].filter(Boolean).join(" ") || "Address not available",
+          coordinates: { lat: parseFloat(el.lat || el.center?.lat), lon: parseFloat(el.lon || el.center?.lon) }
+        })).slice(0, 5);
+
+        return {
+          success: true,
+          result: results,
+          reasoning: `Found ${results.length} restaurants near your location using OpenStreetMap data.`
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }
+  },
+
+  add_calendar_event: {
+    description: "Add an event to the calendar. ALWAYS returns a draft first.",
+    parameters: z.object({
+      title: z.string().describe("The title of the event"),
+      start_time: z.string().describe("The start time in ISO format"),
+      end_time: z.string().describe("The end time in ISO format"),
+      location: z.string().optional().describe("The location of the event"),
+      confirmed: z.boolean().optional().describe("Set to true only after user confirms"),
+    }),
+    execute: async ({ title, start_time, end_time, location, confirmed }: { 
+      title: string; start_time: string; end_time: string; location?: string; confirmed?: boolean 
+    }): Promise<ToolResult> => {
+      const queryParams = new URLSearchParams({ title, start: start_time, end: end_time, location: location || "" });
+
+      if (!confirmed) {
+        return {
+          success: true,
+          draft: true,
+          requiresConfirmation: true,
+          result: { title, start_time, end_time, location, status: "draft" },
+          reasoning: "Draft created. Please confirm to finalize the calendar event."
+        };
+      }
+
+      return {
+        success: true,
+        result: { status: "confirmed", download_url: `/api/download-ics?${queryParams.toString()}` },
+        reasoning: "Event confirmed and .ics file generated."
+      };
+    }
+  },
+
+    update_user_context: {
+
+      description: "Update the user's persistent context/memory (preferences, names, facts).",
+
+      parameters: z.object({
+
+        context: z.string().describe("The information to remember about the user"),
+
+      }),
+
+      execute: async ({ context }: { context: string }): Promise<ToolResult> => {
+
+        return {
+
+          success: true,
+
+          result: { context },
+
+          reasoning: `Context updated: "${context}". This information will be saved to your local profile.`
+
+        };
+
+      }
+
     },
-    reasoning: `Generated a simulated ${days}-day weather forecast for ${location} based on typical seasonal patterns. This is a mock implementation for demonstration purposes.`
+
+  
+
+    update_goal: {
+
+      description: "Update the current objective and steps completed for the goal sidebar.",
+
+      parameters: z.object({
+
+        objective: z.string().describe("The high-level goal being pursued"),
+
+        steps_completed: z.array(z.string()).describe("List of steps already finished"),
+
+        next_step: z.string().optional().describe("The immediate next step"),
+
+      }),
+
+      execute: async ({ objective, steps_completed, next_step }: { 
+
+        objective: string; steps_completed: string[]; next_step?: string 
+
+      }): Promise<ToolResult> => {
+
+        return {
+
+          success: true,
+
+          result: { objective, steps_completed, next_step },
+
+          reasoning: `Goal updated: ${objective}`
+
+        };
+
+      }
+
+    }
+
   };
-}
 
-export const TOOLS: Record<string, Function> = {
-  search_restaurant,
-  add_calendar_event,
-  web_search,
-  get_weather,
-};
-
-export async function executeTool(tool_name: string, parameters: any): Promise<ToolResult> {
-  const tool = TOOLS[tool_name];
-  if (!tool) {
-    throw new Error(`Tool ${tool_name} not found`);
-  }
-  return await tool(parameters);
-}
+  

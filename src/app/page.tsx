@@ -105,8 +105,8 @@ export default function Home() {
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage({ text: input }, { body: { userLocation } });
+    if (!input.trim() || isLoading) return;
+    sendMessage({ content: input }, { body: { userLocation } });
     setInput("");
   };
 

@@ -10,7 +10,16 @@ const openai = createOpenAI({
 });
 
 export async function POST(req: Request) {
-  const { messages, userLocation } = await req.json();
+  const json = await req.json();
+  let messages = json.messages;
+  let userLocation = json.userLocation;
+
+  // Handle case where a single message is sent as 'text' or 'content'
+  if (!messages && (json.text || json.content)) {
+    messages = [{ role: 'user', content: json.text || json.content }];
+  } else if (messages && !Array.isArray(messages)) {
+    messages = [messages];
+  }
 
   const locationContext = userLocation 
     ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}.`

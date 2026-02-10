@@ -266,6 +266,24 @@ export function getDeterministicPlan(
   const parsedDate = chrono.parseDate(input) || new Date();
   let startTime = parsedDate;
   
+  // If "tomorrow" is in input but no specific time was parsed (defaulting to now's time), 
+  // and it's a dining or special intent, default to 7:00 PM.
+  const hasTomorrow = normalized.includes('tomorrow');
+  const hasToday = normalized.includes('today');
+  const isDiningOrSpecial = classification.type === "TOOL_SEARCH" || 
+                            classification.type === "COMPLEX_PLAN" || 
+                            classification.isSpecialIntent;
+
+  // chrono-node often keeps the current time if only a date part is provided
+  // We check if the parsed time is within 1 minute of "now" to guess if a time was provided
+  const now = new Date();
+  const timeDifference = Math.abs(startTime.getTime() % (24 * 60 * 60 * 1000) - now.getTime() % (24 * 60 * 60 * 1000));
+  const isDefaultTime = timeDifference < 60000;
+
+  if (isDiningOrSpecial && isDefaultTime && (hasTomorrow || hasToday)) {
+    startTime.setHours(19, 0, 0, 0);
+  }
+  
   if (classification.metadata?.isTransport) {
     startTime = new Date(parsedDate.getTime() - 2 * 60 * 60 * 1000);
   }

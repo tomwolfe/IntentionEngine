@@ -367,10 +367,13 @@ export async function add_calendar_event(params: any) {
         description = description ? `${description}\n\n${wineInfo}` : wineInfo;
       }
 
+      // Use a format that chrono can parse back easily but avoids the 'Z' which forces UTC
+      const toLocalISO = (date: Date) => date.toLocaleString('sv-SE').replace(' ', 'T');
+
       const queryParams = new URLSearchParams({
         title,
-        start: parsedStart.toISOString(),
-        end: parsedEnd.toISOString(),
+        start: toLocalISO(parsedStart),
+        end: toLocalISO(parsedEnd),
         location: location || restaurant_address || "",
         description
       });

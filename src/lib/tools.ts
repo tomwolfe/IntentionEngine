@@ -275,6 +275,15 @@ export interface ToolDefinition {
   execute: (params: any) => Promise<{ success: boolean; result?: any; error?: string }>;
 }
 
+export type ExecuteToolResult = {
+  success: boolean;
+  result?: any;
+  error?: string;
+  replanned?: boolean;
+  new_plan?: any;
+  error_explanation?: string;
+};
+
 export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["geocode_location", {
     name: "geocode_location",
@@ -300,7 +309,7 @@ export async function executeTool(
   tool_name: string, 
   parameters: any, 
   context?: { audit_log_id: string; step_index: number }
-) {
+): Promise<ExecuteToolResult> {
   const toolDef = TOOLS.get(tool_name);
   if (!toolDef) {
     throw new Error(`Tool ${tool_name} not found`);

@@ -103,31 +103,6 @@ export async function POST(req: NextRequest) {
       });
     };
 
-    function getDeepPath(obj: any, path: string) {
-      const parts = path.split(".");
-      let current = obj;
-      for (const part of parts) {
-        if (part.includes("[") && part.includes("]")) {
-          const arrayPart = part.match(/(.+)\[(\d+)\]/);
-          if (arrayPart) {
-            const arrayName = arrayPart[1];
-            const index = parseInt(arrayPart[2]);
-            current = arrayName ? current[arrayName][index] : current[index];
-          } else {
-            // Case like [0] without array name
-            const indexMatch = part.match(/\[(\d+)\]/);
-            if (indexMatch) {
-              current = current[parseInt(indexMatch[1])];
-            }
-          }
-        } else {
-          current = current[part];
-        }
-        if (current === undefined) throw new Error(`Path ${path} not found in object`);
-      }
-      return current;
-    }
-
     const resolvedParameters = JSON.parse(JSON.stringify(step.parameters), (key, value) => {
       if (typeof value === "string" && value.includes("{{step_")) {
         return resolveValue(value);

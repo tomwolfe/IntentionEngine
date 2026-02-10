@@ -22,7 +22,7 @@ export async function inferIntent(text: string): Promise<IntentInferenceResult> 
     throw new Error("Input text is empty");
   }
 
-  const { object, rawResponse } = await generateObject({
+  const { object } = await generateObject({
     model: customOpenAI(env.LLM_MODEL),
     schema: IntentSchema,
     system: `You are a precision Intent Inference Engine. 
@@ -38,6 +38,6 @@ Use PLANNING if the request requires multiple steps (e.g., finding a place and t
 
   return {
     intent: object,
-    rawResponse: JSON.stringify(rawResponse),
+    rawResponse: JSON.stringify(object),
   };
 }

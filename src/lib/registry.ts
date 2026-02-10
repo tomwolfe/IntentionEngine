@@ -1,4 +1,4 @@
-import { TOOLS, ToolDefinition } from "./tools";
+import { registry, ToolDefinition } from "./tools";
 import { z } from "zod";
 
 /**
@@ -50,6 +50,6 @@ export function registerDynamicTool(definition: {
     })
   };
 
-  TOOLS.set(name, dynamicTool);
+  registry.register(dynamicTool);
   console.log(`Successfully registered dynamic tool: ${name}`);
 }

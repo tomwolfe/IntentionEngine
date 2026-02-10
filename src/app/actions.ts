@@ -76,7 +76,7 @@ export async function executeToolWithContext(
 
     // Proactive Failure Learning
     if (!result.success) {
-      const { generateRemedy } = await import("./llm");
+      const { generateRemedy } = await import("../lib/llm");
       const remedy = await generateRemedy(tool_name, result.error || "Unknown error", parameters);
       
       await saveFailureMemory(

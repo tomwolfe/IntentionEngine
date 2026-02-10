@@ -1,42 +1,21 @@
 {
   "name": "intentionengine",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Pareto-optimal intention execution engine",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "test": "vitest run"
+    "lint": "next lint"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/tomwolfe/IntentionEngine.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
-  "bugs": {
-    "url": "https://github.com/tomwolfe/IntentionEngine/issues"
-  },
-  "homepage": "https://github.com/tomwolfe/IntentionEngine#readme",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.25",
     "@ai-sdk/react": "^3.0.71",
-    "@mlc-ai/web-llm": "^0.2.80",
-    "@upstash/redis": "^1.36.2",
     "ai": "^6.0.69",
-    "chrono-node": "^2.9.0",
-    "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
-    "lru-cache": "^11.2.5",
-    "lucide-react": "^0.563.0",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -44,13 +23,9 @@
     "@types/node": "^25.2.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.24",
-    "eslint": "^9.39.2",
-    "eslint-config-next": "^16.1.6",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "typescript": "^5.9.3"
   }
 }

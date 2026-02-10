@@ -15,7 +15,7 @@ export type RestaurantResult = z.infer<typeof RestaurantResultSchema>;
 
 export const StepSchema = z.object({
   tool_name: z.string(),
-  parameters: z.record(z.string(), z.any()),
+  parameters: z.record(z.string(), z.any()), // Can contain placeholders like {{last_step_result.location}}
   requires_confirmation: z.boolean(),
   description: z.string(), // Human readable description of the step
 });

@@ -17,17 +17,23 @@ describe('Transport Intent Handling', () => {
     const classification = await classifyIntent(input);
     const plan = getDeterministicPlan(classification, input);
 
-    expect(plan.intent_type).toBe('transport');
-    expect(plan.ordered_steps?.length).toBe(1);
+    expect(plan.intent_type).toBe('airport_transfer');
+    expect(plan.ordered_steps?.length).toBe(3);
     
-    const step = plan.ordered_steps?.[0];
-    expect(step?.tool_name).toBe('add_calendar_event');
-    expect(step?.requires_confirmation).toBe(false);
+    const geocodeStep = plan.ordered_steps?.[0];
+    expect(geocodeStep?.tool_name).toBe('geocode_location');
 
-    const startTime = new Date(step?.parameters.start_time);
-    const endTime = new Date(step?.parameters.end_time);
+    const directionsStep = plan.ordered_steps?.[1];
+    expect(directionsStep?.tool_name).toBe('get_directions');
+
+    const calendarStep = plan.ordered_steps?.[2];
+    expect(calendarStep?.tool_name).toBe('add_calendar_event');
+    expect(calendarStep?.requires_confirmation).toBe(false);
+
+    const startTime = new Date(calendarStep?.parameters.start_time);
+    const endTime = new Date(calendarStep?.parameters.end_time);
     
-    // Difference should be exactly 2 hours
+    // Difference should be exactly 2 hours (Sacred Rule)
     const diffMs = endTime.getTime() - startTime.getTime();
     expect(diffMs).toBe(2 * 60 * 60 * 1000);
 

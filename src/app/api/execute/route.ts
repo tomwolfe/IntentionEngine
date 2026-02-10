@@ -28,8 +28,64 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Step not found" }, { status: 404 });
       }
 
-      // Merge provided parameters with step parameters
-      const parameters = providedParams ? { ...step.parameters, ...providedParams } : step.parameters;
+      // Variable Injection: Resolve {{last_step_result.path}} placeholders
+      const resolveVariables = (obj: any, lastResult: any): any => {
+        if (typeof obj === 'string') {
+          // If the entire string is a single placeholder, return the raw value (could be number, object, etc.)
+          const fullMatch = obj.match(/^\{\{last_step_result\.(.*?)\}\}$/);
+          if (fullMatch) {
+            const path = fullMatch[1];
+            const keys = path.split('.');
+            let val = lastResult;
+            for (const key of keys) {
+              const match = key.match(/(.*)\[(\d+)\]/);
+              if (match) {
+                val = val?.[match[1]]?.[parseInt(match[2])];
+              } else {
+                val = val?.[key];
+              }
+            }
+            return val !== undefined ? val : obj;
+          }
+
+          // Otherwise, do string interpolation
+          return obj.replace(/\{\{last_step_result\.(.*?)\}\}/g, (_, path) => {
+            const keys = path.split('.');
+            let val = lastResult;
+            for (const key of keys) {
+              const match = key.match(/(.*)\[(\d+)\]/);
+              if (match) {
+                val = val?.[match[1]]?.[parseInt(match[2])];
+              } else {
+                val = val?.[key];
+              }
+            }
+            return val !== undefined ? val : `{{last_step_result.${path}}}`;
+          });
+        }
+        if (Array.isArray(obj)) {
+          return obj.map(item => resolveVariables(item, lastResult));
+        }
+        if (typeof obj === 'object' && obj !== null) {
+          const newObj: any = {};
+          for (const key in obj) {
+            newObj[key] = resolveVariables(obj[key], lastResult);
+          }
+          return newObj;
+        }
+        return obj;
+      };
+
+      let resolvedParameters = step.parameters;
+      if (step_index > 0) {
+        const lastStepLog = log.steps.find(s => s.step_index === step_index - 1);
+        if (lastStepLog && lastStepLog.status === "executed") {
+          resolvedParameters = resolveVariables(step.parameters, lastStepLog.output);
+        }
+      }
+
+      // Merge provided parameters with resolved parameters
+      const parameters = providedParams ? { ...resolvedParameters, ...providedParams } : resolvedParameters;
 
       // Check if already executed
       const existingStepLog = log.steps.find(s => s.step_index === step_index);

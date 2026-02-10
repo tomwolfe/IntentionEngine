@@ -43,32 +43,37 @@ Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 *   **`search_restaurant`:** Finds nearby restaurants based on cuisine, location, and ambiance (e.g., romantic). Uses Overpass API and caches results in Upstash Redis. **Incorporates "vibe memory"** to bias suggestions based on past preferences (e.g., "French" or "Italian").
 *   **`find_event`:** Discovers local events (e.g., concerts, jazz clubs) using public APIs. Delivers a single card with event details and a "Learn More" link. Uses vibe memory to bias results (e.g., "jazz," "quiet"). Does not auto-add to calendar—requires explicit user confirmation via "Download (.ics)".
 *   **`get_directions`:** Generates turn-by-turn navigation to any location (restaurant, event, airport) with distance and duration. Returns a single card with an "Open in Maps" button. No calendar event is created, preserving user control.
+*   **`get_weather_forecast`:** Fetches hyper-local meteorological data for a specific location and date, providing a concise report on conditions and temperature.
 *   **`add_calendar_event`:** Creates a downloadable `.ics` file with the restaurant's, event's, or location's details pre-populated, including a suggested wine pairing if applicable.
 
-### 3. **Seamless Calendar Integration**
+### 3. **Modular Orchestration & Variable Injection**
+*   **Template-Based Registry:** The system uses a modular `PlanRegistry` that decouples intent classification from plan generation. This allows for the rapid implementation of sophisticated, multi-tool templates.
+*   **Dynamic Variable Injection:** Steps can now resolve parameters at runtime using `{{last_step_result.path}}` syntax. This enables "true" orchestration where a restaurant search can be biased by an event's coordinates, or a calendar event can dynamically include the address of a found location.
+
+### 4. **Intent Fusion (The Single, Unified Card)**
+*   **Ethos:** For complex intents involving multiple, sequential actions, the system synthesizes them into one flawless, cohesive outcome.
+*   **Manifestation:** The system executes sequential steps and delivers a **single, unified card** or a series of coordinated outcome cards.
+*   **Specialized Fusions:**
+    *   **Airport Transfer:** Performs a geocode, calculates directions/time, and prepares a calendar event with the mandatory 2-hour "Sacred Rule" buffer.
+    *   **Concert Night:** Finds a show, identifies a nearby high-end restaurant using the event's precise coordinates, and fuses them into a single evening itinerary.
+    *   **Weekend Getaway:** Orchestrates a multi-day escape with dinner and an activity fused into one beautiful calendar card.
+*   **Universal Rendering:** Any tool result that doesn't have a dedicated UI component is gracefully handled by the `GenericOutcomeCard`, ensuring the "Silent Execution" ethos is maintained even for new or edge-case tools.
+
+### 5. **Seamless Calendar Integration**
 *   After a restaurant, event, or location is found, a single, prominent button downloads a `.ics` file.
 *   The calendar event includes the name, address, and a custom description (including a suggested wine pairing if applicable).
 *   Uses your device's geolocation (with permission) to find places near you.
 
-### 4. **Contextual Whisper (Anticipatory Intelligence)**
+### 6. **Contextual Whisper (Anticipatory Intelligence)**
 *   **Ethos:** The system anticipates unspoken needs to create a deeply personal experience.
 *   **Manifestation:** After successfully planning a special dinner, the system silently suggests, "Would you like me to find a nearby wine shop for a bottle to bring?" with a tiny "Yes" button. Clicking "Yes" immediately finds the wine shop and appends its details to the event description. This enhancement is offered without disrupting the user's flow and requires explicit, one-click confirmation. It is not a feature; it is the system anticipating a desire.
 
-### 5. **Intent Fusion (The Single, Unified Card)**
-*   **Ethos:** For complex intents involving multiple, sequential actions, the system synthesizes them into one flawless, cohesive outcome.
-*   **Manifestation:** When a request like "Plan a romantic dinner for tomorrow night at 8 PM, and then get me a taxi to the airport for my 7 AM flight" is made, the system executes both `search_restaurant` and `get_directions` steps, then delivers a **single, unified card**.
-*   **Top:** "A perfect evening at Le Bistrot | 8:00 PM"
-*   **Middle:** A subtle, elegant horizontal divider.
-*   **Bottom:** "Airport Transfer: 5:00 AM | 1h 30m drive"
-*   The single "Download (.ics)" button generates a calendar file containing **both** events. This eliminates clutter and embodies "Elegant Synthesis" at its peak.
-*   **New:** The system now intelligently detects "Weekend Getaway" requests and fuses a dinner and an activity into a single, beautiful calendar card.
-
-### 6. **Comprehensive Auditing**
+### 7. **Comprehensive Auditing**
 *   **Immutable Logs:** Every interaction, from the initial prompt to the final outcome, is logged with a unique `audit_log_id`.
 *   **Full Context:** Logs capture the original intent, the generated `Plan`, every executed tool step, and the final outcome.
 *   **Debugging & Transparency:** Perfect for developers to debug issues and for users who demand to know exactly what happened.
 
-### 7. **Enterprise-Grade Reliability**
+### 8. **Enterprise-Grade Reliability**
 *   **Circuit Breakers:** Tools like `search_restaurant`, `geocode_location`, `find_event`, and `get_directions` are wrapped in circuit breakers. If a service fails repeatedly, it's temporarily disabled to prevent cascading failures.
 *   **Retry Logic:** Failed API calls are automatically retried with exponential backoff.
 *   **Rate Limiting:** Protects against abuse.

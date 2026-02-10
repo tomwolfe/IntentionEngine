@@ -15,6 +15,240 @@ const VAGUE_PHRASES = [
 ];
 
 /**
+ * Registry-based intent mapping system.
+ * Each entry defines its triggers and how to generate the deterministic steps.
+ */
+interface RegistryEntry {
+  trigger: (classification: IntentClassification, input: string) => boolean;
+  generateSteps: (
+    classification: IntentClassification,
+    input: string,
+    context: {
+      lat: number;
+      lon: number;
+      cuisine: string;
+      dateStr: string;
+      endDateStr: string;
+    }
+  ) => Partial<Plan>;
+}
+
+const PLAN_REGISTRY: Record<string, RegistryEntry> = {
+  WEEKEND_GETAWAY: {
+    trigger: (c) => !!c.metadata?.isWeekendGetaway,
+    generateSteps: (c, input, { lat, lon, cuisine, dateStr }) => {
+      const fridayDinner = new Date(dateStr);
+      fridayDinner.setHours(19, 0, 0, 0);
+      const saturdayActivity = new Date(new Date(dateStr).getTime() + 24 * 60 * 60 * 1000);
+      saturdayActivity.setHours(11, 0, 0, 0);
+
+      return {
+        intent_type: "weekend_getaway",
+        constraints: ["Weekend orchestration", "multiple events"],
+        ordered_steps: [
+          {
+            tool_name: "search_restaurant",
+            parameters: { cuisine, lat, lon, romantic: true },
+            requires_confirmation: false,
+            description: "Finding a perfect Friday dinner spot."
+          },
+          {
+            tool_name: "find_event",
+            parameters: { query: "popular activity", lat, lon, date: saturdayActivity.toISOString() },
+            requires_confirmation: false,
+            description: "Discovering a Saturday adventure."
+          },
+          {
+            tool_name: "add_calendar_event",
+            parameters: { 
+              title: "Weekend Getaway",
+              start_time: fridayDinner.toISOString(),
+              end_time: saturdayActivity.toISOString(),
+              location: "Weekend Destination",
+              description: "Your perfectly curated weekend escape."
+            },
+            requires_confirmation: true,
+            description: "Synthesizing your getaway."
+          }
+        ]
+      };
+    }
+  },
+  AIRPORT_TRANSFER: {
+    trigger: (c, input) => input.toLowerCase().includes("airport") || !!c.metadata?.isTransport,
+    generateSteps: (c, input, { lat, lon, dateStr, endDateStr }) => {
+      const location = c.metadata?.location || "Airport";
+      return {
+        intent_type: "airport_transfer",
+        constraints: ["2-hour buffer", "Geospatial routing"],
+        ordered_steps: [
+          {
+            tool_name: "geocode_location",
+            parameters: { location },
+            requires_confirmation: false,
+            description: `Locating ${location}.`
+          },
+          {
+            tool_name: "get_directions",
+            parameters: { 
+              origin: "current location", 
+              destination: "{{last_step_result.result.lat}},{{last_step_result.result.lon}}" 
+            },
+            requires_confirmation: false,
+            description: "Calculating the optimal route."
+          },
+          {
+            tool_name: "add_calendar_event",
+            parameters: { 
+              title: `Travel to ${location}`,
+              start_time: dateStr,
+              end_time: endDateStr,
+              location: "{{last_step_result.result.destination}}"
+            },
+            requires_confirmation: false,
+            description: "Securing your passage."
+          }
+        ]
+      };
+    }
+  },
+  CONCERT_NIGHT: {
+    trigger: (c, input) => input.toLowerCase().includes("concert") || input.toLowerCase().includes("show"),
+    generateSteps: (c, input, { lat, lon, cuisine, dateStr, endDateStr }) => {
+      return {
+        intent_type: "concert_night",
+        constraints: ["Event-centric dining", "Proximity bias"],
+        ordered_steps: [
+          {
+            tool_name: "find_event",
+            parameters: { query: "concert", lat, lon, date: dateStr },
+            requires_confirmation: false,
+            description: "Finding the perfect show."
+          },
+          {
+            tool_name: "search_restaurant",
+            parameters: { 
+              cuisine, 
+              lat: "{{last_step_result.result[0].lat}}", 
+              lon: "{{last_step_result.result[0].lon}}",
+              romantic: true 
+            },
+            requires_confirmation: false,
+            description: "Finding a nearby restaurant for dinner."
+          },
+          {
+            tool_name: "add_calendar_event",
+            parameters: { 
+              title: "Concert Night",
+              start_time: dateStr,
+              end_time: endDateStr,
+              location: "{{last_step_result.result[0].name}}"
+            },
+            requires_confirmation: true,
+            description: "Finalizing your evening plans."
+          }
+        ]
+      };
+    }
+  },
+  WEATHER_CHECK: {
+    trigger: (c, input) => input.toLowerCase().includes("weather") || input.toLowerCase().includes("forecast"),
+    generateSteps: (c, input, { lat, lon, dateStr }) => {
+      const location = c.metadata?.location || "London";
+      return {
+        intent_type: "weather_check",
+        constraints: ["Real-time meteorological data"],
+        ordered_steps: [
+          {
+            tool_name: "geocode_location",
+            parameters: { location },
+            requires_confirmation: false,
+            description: `Locating ${location} for weather report.`
+          },
+          {
+            tool_name: "get_weather_forecast",
+            parameters: { 
+              location: "{{last_step_result.result.lat}},{{last_step_result.result.lon}}",
+              date: dateStr 
+            },
+            requires_confirmation: false,
+            description: "Fetching the forecast."
+          }
+        ]
+      };
+    }
+  },
+  DINING: {
+    trigger: (c) => c.type === "TOOL_SEARCH",
+    generateSteps: (c, input, { lat, lon, cuisine }) => ({
+      intent_type: "dining",
+      constraints: ["find restaurant", `near ${lat}, ${lon}`],
+      ordered_steps: [
+        {
+          tool_name: "search_restaurant",
+          parameters: { 
+            cuisine,
+            lat,
+            lon,
+            romantic: c.isSpecialIntent
+          },
+          requires_confirmation: false,
+          description: "Finding the perfect venue for you."
+        }
+      ]
+    })
+  },
+  COMPLEX_PLAN: {
+    trigger: (c) => c.type === "TOOL_CALENDAR" || c.type === "COMPLEX_PLAN",
+    generateSteps: (c, input, { lat, lon, cuisine, dateStr, endDateStr }) => {
+      const steps = [];
+      const normalized = input.toLowerCase();
+      
+      if (c.type === "COMPLEX_PLAN" || normalized.includes("restaurant") || normalized.includes("dinner") || normalized.includes("lunch")) {
+        steps.push({
+          tool_name: "search_restaurant",
+          parameters: { 
+            cuisine,
+            lat,
+            lon,
+            romantic: c.isSpecialIntent
+          },
+          requires_confirmation: false,
+          description: "Finding the perfect venue for you."
+        });
+      }
+
+      if (c.metadata?.isDateNight) {
+        steps.push({
+          tool_name: "find_event",
+          parameters: { query: "movie", lat, lon },
+          requires_confirmation: false,
+          description: "Finding a cinematic escape."
+        });
+      }
+
+      steps.push({
+        tool_name: "add_calendar_event",
+        parameters: { 
+          title: c.metadata?.isDateNight ? "Date Night" : (c.isSpecialIntent ? "Special Occasion" : "Event"),
+          start_time: dateStr,
+          end_time: endDateStr,
+          location: "" 
+        },
+        requires_confirmation: true,
+        description: "Preparing your calendar for the final act."
+      });
+
+      return {
+        intent_type: c.type === "COMPLEX_PLAN" ? "dining_and_calendar" : "scheduling",
+        constraints: ["deterministic orchestration", "2-hour duration"],
+        ordered_steps: steps
+      };
+    }
+  }
+};
+
+/**
  * Deterministically generates the muscle of the plan (ordered_steps).
  * The LLM will later provide the summary (the whisper).
  */
@@ -29,155 +263,35 @@ export function getDeterministicPlan(
   const lat = userLocation?.lat || 51.5074;
   const lon = userLocation?.lng || -0.1278;
 
-  // Extract date from input or default to today
   const parsedDate = chrono.parseDate(input) || new Date();
-  
   let startTime = parsedDate;
-  const isTransport = classification.metadata?.isTransport;
-
-  if (isTransport) {
-    // Sacred Rule: Transport events start 2 hours before the target arrival time
+  
+  if (classification.metadata?.isTransport) {
     startTime = new Date(parsedDate.getTime() - 2 * 60 * 60 * 1000);
   }
 
   const dateStr = startTime.toISOString();
-  
-  // End time is always 2 hours later (Sacred Rule)
   const endDate = new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
   const endDateStr = endDate.toISOString();
 
-  // Simple cuisine extraction
   const CUISINE_LIST = ['italian', 'french', 'japanese', 'chinese', 'mexican', 'indian', 'spanish', 'thai', 'sushi', 'pizza', 'steak', 'seafood', 'burger', 'tapas', 'bistro', 'wine shop'];
   let cuisineMatch = CUISINE_LIST.find(c => normalized.includes(c));
-  
-  // Vibe Bias: Use sessionContext or dnaCuisine for vague requests
   const isVague = VAGUE_PHRASES.some(phrase => normalized.includes(phrase)) || 
                   (normalized.includes("wine") || normalized.includes("drink") || normalized.includes("bar"));
   
-  // If vague and we have session context, bias towards it
   if (isVague && (normalized.includes("wine") || normalized.includes("drink") || normalized.includes("bar")) && sessionContext?.cuisine === 'french') {
     cuisineMatch = 'wine shop';
   }
 
   const cuisine = cuisineMatch || (isVague && (sessionContext?.cuisine || dnaCuisine) ? (sessionContext?.cuisine || dnaCuisine) : "any");
 
-  if (classification.metadata?.isWeekendGetaway) {
-    // Phase 3: "The Perfect Day" Scenario
-    const fridayDinner = new Date(parsedDate);
-    fridayDinner.setHours(19, 0, 0, 0);
-    const saturdayActivity = new Date(parsedDate.getTime() + 24 * 60 * 60 * 1000);
-    saturdayActivity.setHours(11, 0, 0, 0);
+  const context = { lat, lon, cuisine, dateStr, endDateStr };
 
-    return {
-      intent_type: "weekend_getaway",
-      constraints: ["Weekend orchestration", "multiple events"],
-      ordered_steps: [
-        {
-          tool_name: "search_restaurant",
-          parameters: { cuisine, lat, lon, romantic: true },
-          requires_confirmation: false,
-          description: "Finding a perfect Friday dinner spot."
-        },
-        {
-          tool_name: "find_event",
-          parameters: { query: "popular activity", lat, lon, date: saturdayActivity.toISOString() },
-          requires_confirmation: false,
-          description: "Discovering a Saturday adventure."
-        },
-        {
-          tool_name: "add_calendar_event",
-          parameters: { 
-            title: "Weekend Getaway",
-            start_time: fridayDinner.toISOString(),
-            end_time: saturdayActivity.toISOString(),
-            location: "Weekend Destination",
-            description: "Your perfectly curated weekend escape."
-          },
-          requires_confirmation: true,
-          description: "Synthesizing your getaway."
-        }
-      ]
-    };
-  }
-
-  if (classification.type === "TOOL_SEARCH") {
-    return {
-      intent_type: "dining",
-      constraints: ["find restaurant", `near ${lat}, ${lon}`],
-      ordered_steps: [
-        {
-          tool_name: "search_restaurant",
-          parameters: { 
-            cuisine,
-            lat,
-            lon,
-            romantic: classification.isSpecialIntent
-          },
-          requires_confirmation: false,
-          description: "Finding the perfect venue for you."
-        }
-      ]
-    };
-  }
-
-  if (classification.type === "TOOL_CALENDAR" || classification.type === "COMPLEX_PLAN") {
-    const steps = [];
-    
-    if (!isTransport && (classification.type === "COMPLEX_PLAN" || normalized.includes("restaurant") || normalized.includes("dinner") || normalized.includes("lunch"))) {
-      steps.push({
-        tool_name: "search_restaurant",
-        parameters: { 
-          cuisine,
-          lat,
-          lon,
-          romantic: classification.isSpecialIntent
-        },
-        requires_confirmation: false,
-        description: "Finding the perfect venue for you."
-      });
+  // Iterate through registry to find matching intent
+  for (const entry of Object.values(PLAN_REGISTRY)) {
+    if (entry.trigger(classification, input)) {
+      return entry.generateSteps(classification, input, context);
     }
-
-    // Intent Fusion: Dinner + Movie
-    if (classification.metadata?.isDateNight) {
-      steps.push({
-        tool_name: "find_event",
-        parameters: { query: "movie", lat, lon },
-        requires_confirmation: false,
-        description: "Finding a cinematic escape."
-      });
-    }
-
-    if (isTransport) {
-      steps.push({
-        tool_name: "add_calendar_event",
-        parameters: { 
-          title: `Travel to ${classification.metadata?.location || 'Airport'}`,
-          start_time: dateStr,
-          end_time: endDateStr,
-          location: classification.metadata?.location || (userLocation ? "Current Location" : "London")
-        },
-        requires_confirmation: false,
-        description: "Securing your passage."
-      });
-    } else {
-      steps.push({
-        tool_name: "add_calendar_event",
-        parameters: { 
-          title: classification.metadata?.isDateNight ? "Date Night" : (classification.isSpecialIntent ? "Special Occasion" : "Event"),
-          start_time: dateStr,
-          end_time: endDateStr,
-          location: "" // To be filled by restaurant result in client
-        },
-        requires_confirmation: true,
-        description: "Preparing your calendar for the final act."
-      });
-    }
-
-    return {
-      intent_type: isTransport ? "transport" : (classification.type === "COMPLEX_PLAN" ? "dining_and_calendar" : "scheduling"),
-      constraints: ["deterministic orchestration", isTransport ? "2-hour buffer" : "2-hour duration"],
-      ordered_steps: steps
-    };
   }
 
   return {

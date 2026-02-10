@@ -23,6 +23,37 @@ class LocalProvider {
 
 const localProvider = new LocalProvider();
 
+function GenericOutcomeCard({ result, toolName }: { result: any, toolName: string }) {
+  const data = result?.result || result;
+  
+  if (!data) return null;
+
+  const renderValue = (val: any): string => {
+    if (typeof val === 'object' && val !== null) {
+      return JSON.stringify(val);
+    }
+    return String(val);
+  };
+
+  const entries = typeof data === 'object' && data !== null 
+    ? Object.entries(data).filter(([key]) => key !== 'success' && key !== 'error')
+    : [['Result', renderValue(data)]];
+
+  return (
+    <div className="p-8 border border-slate-100 rounded-[2.5rem] bg-slate-50/50 mb-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">{toolName.replace(/_/g, ' ')}</h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {entries.map(([key, value]) => (
+          <div key={key} className="space-y-1">
+            <p className="text-xs text-slate-400 capitalize">{key.replace(/_/g, ' ')}</p>
+            <p className="text-slate-700 font-medium break-words">{renderValue(value)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [input, setInput] = useState("");
@@ -465,17 +496,26 @@ export default function Home() {
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistantMessage) return null;
 
-    // Search for search, event and calendar results
+    // Search for specialized tool results
     const searchPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'search_restaurant' && p.state === 'output-available');
     const eventPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'find_event' && p.state === 'output-available');
     const calendarPart = lastAssistantMessage.parts.find(p => isToolUIPart(p) && getToolName(p) === 'add_calendar_event' && p.state === 'output-available');
     
+    // Identify other tool results that need generic cards
+    const specializedToolNames = ['search_restaurant', 'find_event', 'add_calendar_event'];
+    const genericParts = lastAssistantMessage.parts.filter(p => 
+      isToolUIPart(p) && 
+      p.state === 'output-available' && 
+      !specializedToolNames.includes(getToolName(p))
+    );
+
     // In v2.0, we only show the final card when everything is ready OR the simplified plan
     const isComplete = calendarPart && (calendarPart as any).state === 'output-available';
     const isSimplified = searchPart && !calendarPart && activeIntent?.type !== "COMPLEX_PLAN";
+    const hasAnyResults = genericParts.length > 0;
     const isFailed = hasChainFailure;
 
-    if (isComplete || isSimplified || isFailed) {
+    if (isComplete || isSimplified || isFailed || hasAnyResults) {
       const restaurant = (searchPart as any)?.output?.result?.[0] || { 
         name: (calendarPart as any)?.input?.title || "Selected Location", 
         address: (calendarPart as any)?.input?.location || "Confirmed" 
@@ -543,8 +583,14 @@ export default function Home() {
 
       return (
         <div className="space-y-4 pt-4">
-          <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
-            {allCalendarParts.length >= 2 ? (
+          {/* Generic results like weather or directions */}
+          {genericParts.map((p, i) => (
+            <GenericOutcomeCard key={i} result={(p as any).output} toolName={getToolName(p)} />
+          ))}
+
+          {(isComplete || isSimplified || isFailed) && (
+            <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
+              {allCalendarParts.length >= 2 ? (
               // Intent Fusion: Unified card for multiple events
               <div className="mb-10">
                 {allCalendarParts.map((part: any, index: number) => {

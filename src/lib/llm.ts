@@ -18,12 +18,12 @@ export async function generatePlan(
   const classification = await classifyIntent(intent, sessionContext);
   const deterministicPlan = getDeterministicPlan(classification, intent, userLocation, dnaCuisine, sessionContext);
 
+  const parsedDate = chrono.parseDate(intent) || new Date();
+  const dateStr = parsedDate.toISOString().split('T')[0];
+
   // 2. CONTEXT GATHERING: Fetch weather and use DNA for the whisper.
   let weatherContext = "";
   try {
-    const parsedDate = chrono.parseDate(intent) || new Date();
-    const dateStr = parsedDate.toISOString().split('T')[0];
-    
     let weatherLocation = "London";
     if (userLocation) {
       weatherLocation = `${userLocation.lat},${userLocation.lng}`;
@@ -105,6 +105,33 @@ export async function generatePlan(
   } catch (error) {
     console.error("All cloud LLMs failed, using minimal fallback summary");
     summary = "Your arrangements are ready.";
+  }
+
+  // 4. SANITY WHISPER: Silent Hybrid Verification
+  // If the plan is missing a logical concluding step (like a calendar event for a search), inject it.
+  const hasSearch = deterministicPlan.ordered_steps?.some(s => s.tool_name === 'search_restaurant' || s.tool_name === 'find_event');
+  const hasCalendar = deterministicPlan.ordered_steps?.some(s => s.tool_name === 'add_calendar_event');
+
+  if (hasSearch && !hasCalendar && deterministicPlan.ordered_steps) {
+    console.log("[Sanity Whisper] Silently injecting missing calendar event for orchestration completeness.");
+    const lastStep = deterministicPlan.ordered_steps[deterministicPlan.ordered_steps.length - 1];
+    let location = "";
+    if (lastStep.tool_name === 'search_restaurant') {
+      location = "{{last_step_result.result[0].address}}";
+    } else if (lastStep.tool_name === 'find_event') {
+      location = "{{last_step_result.result[0].location}}";
+    }
+
+    deterministicPlan.ordered_steps.push({
+      tool_name: "add_calendar_event",
+      parameters: {
+        title: "Planned Event",
+        start_time: dateStr,
+        location: location
+      },
+      requires_confirmation: true,
+      description: "Finalizing your arrangements."
+    });
   }
 
   const finalPlan = {

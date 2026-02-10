@@ -81,7 +81,8 @@ export async function POST(req: NextRequest) {
         6. ${locationContext}
         7. ${dnaContext}
         8. For calendar events, include 'restaurant_name' and 'restaurant_address' in parameters.
-        9. Return ONLY the final confirmation when complete.`,
+        9. Sanity Whisper: If you have successfully searched for a restaurant or event, you MUST conclude by adding it to the calendar using add_calendar_event.
+        10. Return ONLY the final confirmation when complete.`,
         tools: {
           geocode_location: tool({
             description: "Converts a city or place name to lat/lon coordinates.",

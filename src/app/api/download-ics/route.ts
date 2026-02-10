@@ -24,13 +24,21 @@ export async function GET(req: NextRequest) {
           if (!isValid(endDate) || endDate <= startDate) {
             endDate = addHours(startDate, 2);
           }
+
+          const formatLocation = (loc: string) => {
+            const coordRegex = /^-?\d+\.\d+,-?\d+\.\d+$/;
+            if (coordRegex.test(loc)) {
+              return `https://www.google.com/maps/search/?api=1&query=${loc}`;
+            }
+            return loc || '';
+          };
           
           return [
             'BEGIN:VEVENT',
             `SUMMARY:${event.title}`,
             `DTSTART:${formatICalDate(startDate)}`,
             `DTEND:${formatICalDate(endDate)}`,
-            `LOCATION:${event.location || ''}`,
+            `LOCATION:${formatLocation(event.location)}`,
             `DESCRIPTION:${(event.description || '').replace(/\n/g, '\\n')}`,
             'END:VEVENT',
           ].join('\r\n');
@@ -69,6 +77,14 @@ export async function GET(req: NextRequest) {
       endDate = addHours(startDate, 1);
     }
 
+    const formatLocation = (loc: string) => {
+      const coordRegex = /^-?\d+\.\d+,-?\d+\.\d+$/;
+      if (coordRegex.test(loc)) {
+        return `https://www.google.com/maps/search/?api=1&query=${loc}`;
+      }
+      return loc || '';
+    };
+
     const icsContent = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -77,7 +93,7 @@ export async function GET(req: NextRequest) {
       `SUMMARY:${title}`,
       `DTSTART:${formatICalDate(startDate)}`,
       `DTEND:${formatICalDate(endDate)}`,
-      `LOCATION:${location}`,
+      `LOCATION:${formatLocation(location)}`,
       `DESCRIPTION:${description.replace(/\n/g, '\\n')}`,
       'END:VEVENT',
       'END:VCALENDAR'

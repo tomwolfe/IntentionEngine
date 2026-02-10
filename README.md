@@ -48,25 +48,25 @@ Once a `Plan` is generated, IntentionEngine automatically executes its steps:
 
 ### 3. **Modular Orchestration & Variable Injection**
 *   **Template-Based Registry:** The system uses a modular `PlanRegistry` that decouples intent classification from plan generation. This allows for the rapid implementation of sophisticated, multi-tool templates.
-*   **Dynamic Variable Injection:** Steps can now resolve parameters at runtime using `{{last_step_result.path}}` syntax. This enables "true" orchestration where a restaurant search can be biased by an event's coordinates, or a calendar event can dynamically include the address of a found location.
+*   **Dynamic Variable Injection:** Steps can resolve parameters at runtime using `{{step[N].path}}` or `{{last_step_result.path}}` syntax.
+*   **Pareto Logic:** Supports simple conditional logic within step parameters (e.g., `{{step[1].result.condition == 'Rain' ? 'Tip: Rain expected. Leaving 10 mins early suggested.' : ''}}`), allowing the system to provide proactive, value-add advice based on environmental data.
 
 ### 4. **Intent Fusion (The Single, Unified Card)**
 *   **Ethos:** For complex intents involving multiple, sequential actions, the system synthesizes them into one flawless, cohesive outcome.
 *   **Manifestation:** The system executes sequential steps and delivers a **single, unified card** or a series of coordinated outcome cards.
 *   **Specialized Fusions:**
+    *   **Smart Commute:** Finds a destination, checks the weather, calculates travel time, and provides proactive travel tips (e.g., suggesting an Uber if rain is expected) within a unified calendar itinerary.
     *   **Airport Transfer:** Performs a geocode, calculates directions/time, and prepares a calendar event with the mandatory 2-hour "Sacred Rule" buffer.
-    *   **Concert Night:** Finds a show, identifies a nearby high-end restaurant using the event's precise coordinates, and fuses them into a single evening itinerary.
-    *   **Weekend Getaway:** Orchestrates a multi-day escape with dinner and an activity fused into one beautiful calendar card.
-*   **Universal Rendering:** Any tool result that doesn't have a dedicated UI component is gracefully handled by the `GenericOutcomeCard`, ensuring the "Silent Execution" ethos is maintained even for new or edge-case tools.
+    *   **Concert Night:** Finds a show, identifies a nearby high-end restaurant using the event's precise coordinates, and fuses them into a evening itinerary.
 
 ### 5. **Seamless Calendar Integration**
 *   After a restaurant, event, or location is found, a single, prominent button downloads a `.ics` file.
+*   **Dynamic Deep-Linking:** If a location contains raw coordinates, the system automatically transforms them into a clickable Google Maps URL within the `.ics` file, turning a static entry into a remote control for the user's day.
 *   The calendar event includes the name, address, and a custom description (including a suggested wine pairing if applicable).
-*   Uses your device's geolocation (with permission) to find places near you.
 
-### 6. **Contextual Whisper (Anticipatory Intelligence)**
-*   **Ethos:** The system anticipates unspoken needs to create a deeply personal experience.
-*   **Manifestation:** After successfully planning a special dinner, the system silently suggests, "Would you like me to find a nearby wine shop for a bottle to bring?" with a tiny "Yes" button. Clicking "Yes" immediately finds the wine shop and appends its details to the event description. This enhancement is offered without disrupting the user's flow and requires explicit, one-click confirmation. It is not a feature; it is the system anticipating a desire.
+### 6. **Sanity Whisper (Silent Hybrid Verification)**
+*   **Ethos:** The system performs internal quality control to ensure every plan is logically complete.
+*   **Manifestation:** Before a plan is finalized, a 'Sanity Whisper' (utilizing local or cloud LLM logic) inspects the sequence. If a logical concluding step is missing—such as a calendar event for a dinner search—the system silently injects it into the plan before it reaches the UI. This ensures the "Silent Symphony" always reaches its final, intended note.
 
 ### 7. **Comprehensive Auditing**
 *   **Immutable Logs:** Every interaction, from the initial prompt to the final outcome, is logged with a unique `audit_log_id`.

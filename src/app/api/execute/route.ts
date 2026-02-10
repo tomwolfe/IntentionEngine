@@ -28,15 +28,31 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Step not found" }, { status: 404 });
       }
 
-      // Variable Injection: Resolve {{last_step_result.path}} placeholders
-      const resolveVariables = (obj: any, lastResult: any): any => {
+      // Variable Injection: Resolve {{step[N].path}} and {{last_step_result.path}} placeholders
+      const resolveVariables = (obj: any, allSteps: any[], lastResult: any): any => {
         if (typeof obj === 'string') {
-          // If the entire string is a single placeholder, return the raw value (could be number, object, etc.)
-          const fullMatch = obj.match(/^\{\{last_step_result\.(.*?)\}\}$/);
+          // Support for simple ternary: {{condition == 'Value' ? 'True' : 'False'}}
+          // This is a simplified implementation for the "Pareto Logic"
+          const ternaryMatch = obj.match(/\{\{(.*?)\s*==\s*'(.*?)'\s*\?\s*'(.*?)'\s*:\s*'(.*?)'\}\}/);
+          if (ternaryMatch) {
+            const [full, path, expected, trueVal, falseVal] = ternaryMatch;
+            const resolvedPath = resolveVariables(`{{${path}}}`, allSteps, lastResult);
+            const result = resolvedPath === expected ? trueVal : falseVal;
+            return obj.replace(full, result);
+          }
+
+          // If the entire string is a single placeholder, return the raw value
+          const fullMatch = obj.match(/^\{\{(step\[(\d+)\]|last_step_result)\.(.*?)\}\}$/);
           if (fullMatch) {
-            const path = fullMatch[1];
+            const isSpecificStep = fullMatch[1].startsWith('step');
+            const stepIdx = isSpecificStep ? parseInt(fullMatch[2]) : -1;
+            const path = fullMatch[3];
+            
+            let val = isSpecificStep 
+              ? allSteps.find(s => s.step_index === stepIdx)?.output 
+              : lastResult;
+
             const keys = path.split('.');
-            let val = lastResult;
             for (const key of keys) {
               const match = key.match(/(.*)\[(\d+)\]/);
               if (match) {
@@ -49,9 +65,15 @@ export async function POST(req: NextRequest) {
           }
 
           // Otherwise, do string interpolation
-          return obj.replace(/\{\{last_step_result\.(.*?)\}\}/g, (_, path) => {
+          return obj.replace(/\{\{(step\[(\d+)\]|last_step_result)\.(.*?)\}\}/g, (_, prefix, stepIdxStr, path) => {
+            const isSpecificStep = prefix.startsWith('step');
+            const stepIdx = isSpecificStep ? parseInt(stepIdxStr) : -1;
+            
+            let val = isSpecificStep 
+              ? allSteps.find(s => s.step_index === stepIdx)?.output 
+              : lastResult;
+
             const keys = path.split('.');
-            let val = lastResult;
             for (const key of keys) {
               const match = key.match(/(.*)\[(\d+)\]/);
               if (match) {
@@ -60,16 +82,16 @@ export async function POST(req: NextRequest) {
                 val = val?.[key];
               }
             }
-            return val !== undefined ? val : `{{last_step_result.${path}}}`;
+            return val !== undefined ? val : `{{${prefix}.${path}}}`;
           });
         }
         if (Array.isArray(obj)) {
-          return obj.map(item => resolveVariables(item, lastResult));
+          return obj.map(item => resolveVariables(item, allSteps, lastResult));
         }
         if (typeof obj === 'object' && obj !== null) {
           const newObj: any = {};
           for (const key in obj) {
-            newObj[key] = resolveVariables(obj[key], lastResult);
+            newObj[key] = resolveVariables(obj[key], allSteps, lastResult);
           }
           return newObj;
         }
@@ -80,7 +102,7 @@ export async function POST(req: NextRequest) {
       if (step_index > 0) {
         const lastStepLog = log.steps.find(s => s.step_index === step_index - 1);
         if (lastStepLog && lastStepLog.status === "executed") {
-          resolvedParameters = resolveVariables(step.parameters, lastStepLog.output);
+          resolvedParameters = resolveVariables(step.parameters, log.steps, lastStepLog.output);
         }
       }
 

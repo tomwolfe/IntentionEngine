@@ -74,6 +74,57 @@ const PLAN_REGISTRY: Record<string, RegistryEntry> = {
       };
     }
   },
+  SMART_COMMUTE: {
+    trigger: (c, input) => {
+      const normalized = input.toLowerCase();
+      return normalized.includes("commute") || normalized.includes("drive to") || normalized.includes("go to work") || normalized.includes("travel to");
+    },
+    generateSteps: (c, input, { lat, lon, dateStr, endDateStr }) => {
+      const location = c.metadata?.location || "Work";
+      return {
+        intent_type: "smart_commute",
+        constraints: ["Weather-aware routing", "Proactive travel tip"],
+        ordered_steps: [
+          {
+            tool_name: "geocode_location",
+            parameters: { location },
+            requires_confirmation: false,
+            description: `Locating ${location}.`
+          },
+          {
+            tool_name: "get_weather_forecast",
+            parameters: { 
+              location: "{{step[0].result.lat}},{{step[0].result.lon}}",
+              date: dateStr 
+            },
+            requires_confirmation: false,
+            description: "Checking the horizon for rain."
+          },
+          {
+            tool_name: "get_directions",
+            parameters: { 
+              origin: "current location", 
+              destination: "{{step[0].result.lat}},{{step[0].result.lon}}" 
+            },
+            requires_confirmation: false,
+            description: "Calculating the optimal path."
+          },
+          {
+            tool_name: "add_calendar_event",
+            parameters: { 
+              title: `Commute to ${location}`,
+              start_time: dateStr,
+              end_time: endDateStr,
+              location: "{{step[2].result.destination}}",
+              description: "Commute orchestration. {{step[1].result.condition == 'Rain' ? 'Travel Tip: Rain expected. Leaving 10 mins early via Uber suggested.' : ''}}"
+            },
+            requires_confirmation: false,
+            description: "Finalizing your commute schedule."
+          }
+        ]
+      };
+    }
+  },
   AIRPORT_TRANSFER: {
     trigger: (c, input) => input.toLowerCase().includes("airport") || !!c.metadata?.isTransport,
     generateSteps: (c, input, { lat, lon, dateStr, endDateStr }) => {

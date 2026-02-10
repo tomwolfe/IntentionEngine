@@ -126,7 +126,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;
@@ -180,7 +180,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;
@@ -205,7 +205,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;
@@ -230,7 +230,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;
@@ -254,7 +254,7 @@ export async function POST(req: Request) {
               status: result.success ? "executed" : "failed",
               input: params,
               output: result,
-              error: result.success ? undefined : result.error,
+              error: result.success ? undefined : (result as any).error,
             }]
           });
           return result;

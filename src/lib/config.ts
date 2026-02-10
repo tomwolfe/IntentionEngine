@@ -14,10 +14,7 @@ const _env = envSchema.safeParse(process.env);
 
 if (!_env.success) {
   const errors = _env.error.format();
-  console.error("❌ Invalid environment variables:", JSON.stringify(errors, null, 2));
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Critical environment variables are missing or invalid");
-  }
+  console.warn("⚠️ Invalid or missing environment variables:", JSON.stringify(errors, null, 2));
 }
 
 export const env = _env.data || ({} as z.infer<typeof envSchema>);

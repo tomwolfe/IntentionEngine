@@ -38,6 +38,12 @@ export default function Home() {
     },
   });
 
+  const isLoading = status === "submitted" || status === "streaming";
+
+  const handleClearChat = () => {
+    setMessages([]);
+  };
+
   const handleFeedback = (messageId: string, type: 'up' | 'down') => {
     setFeedback(prev => ({ ...prev, [messageId]: type }));
     // In a real app, send this to the backend
@@ -51,10 +57,33 @@ export default function Home() {
     setConfirmation(null);
   };
 
+  const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    setError(null);
+    try {
+      await sendMessage({ text: input }, { body: { userLocation } });
+      setInput("");
+    } catch (err: any) {
+      setError(err.message || "Failed to send message");
+    }
+  };
+
+  const handleRetry = () => {
+    if (messages.length > 0) {
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+      if (lastUserMessage) {
+        setError(null);
+        sendMessage({ text: (lastUserMessage.parts.find(p => p.type === 'text') as any)?.text || "" }, {
+          body: { userLocation }
+        });
+      }
+    }
+  };
+
   return (
     <main className="max-w-4xl mx-auto p-8">
-      {/* ... header and form ... */}
-
       {confirmation && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
@@ -85,36 +114,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
-      {/* ... rest of the UI ... */}
-
-  const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-
-    setError(null);
-    try {
-      await sendMessage({ text: input }, { body: { userLocation } });
-      setInput("");
-    } catch (err: any) {
-      setError(err.message || "Failed to send message");
-    }
-  };
-
-  const handleRetry = () => {
-    if (messages.length > 0) {
-      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-      if (lastUserMessage) {
-        setError(null);
-        sendMessage({ text: (lastUserMessage.parts.find(p => p.type === 'text') as any)?.text || "" }, {
-          body: { userLocation }
-        });
-      }
-    }
-  };
-
-  return (
-    <main className="max-w-4xl mx-auto p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold">Intention Engine</h1>
         {messages.length > 0 && (

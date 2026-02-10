@@ -47,6 +47,8 @@ export async function POST(req: Request) {
       return new Response("No messages provided", { status: 400 });
     }
 
+    const startTime = Date.now();
+
     // Stateful Memory: Retrieve user preferences from Redis
     const userIp = req.headers.get("x-forwarded-for") || "anonymous";
     const userPrefsKey = `prefs:${userIp}`;
@@ -74,14 +76,27 @@ export async function POST(req: Request) {
     }
 
     let intent;
+    let intentInferenceLatency = 0;
+    let rawModelResponse = "";
     try {
+      const intentStart = Date.now();
       const inferenceResult = await inferIntent(userText);
+      intentInferenceLatency = Date.now() - intentStart;
       intent = inferenceResult.intent;
+      rawModelResponse = inferenceResult.rawResponse;
       console.log("[Phase 4] Structured Intent Inferred:", intent.type, "Confidence:", intent.confidence);
     } catch (e) {
       console.error("Intent inference failed, falling back to UNKNOWN", e);
       intent = { type: "UNKNOWN", confidence: 0, entities: {}, rawText: userText };
     }
+
+    // Initialize Audit Log
+    const { createAuditLog, updateAuditLog } = await import("@/lib/audit");
+    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined);
+    await updateAuditLog(auditLog.id, { 
+      rawModelResponse,
+      inferenceLatencies: { intentInference: intentInferenceLatency }
+    });
 
     const locationContext = userLocation 
       ? `The user is currently at latitude ${userLocation.lat}, longitude ${userLocation.lng}.`
@@ -99,6 +114,10 @@ export async function POST(req: Request) {
 
     ${userPreferences ? `User Preferences: ${JSON.stringify(userPreferences)}` : ""}
 
+    If a tool returns success: false, you MUST acknowledge the error and attempt to REPLAN. 
+    Explain what went wrong and provide a modified plan or alternative action to the user.
+    Do not simply repeat the same failed call.
+
     If a user request requires multiple steps (e.g., finding a place and then scheduling it), classify the intent as PLANNING and outline the steps before calling individual tools.
     `;
 
@@ -106,11 +125,26 @@ export async function POST(req: Request) {
       geocode_location: tool({
         description: "Converts a city or place name to lat/lon coordinates.",
         inputSchema: z.object({
-          location: z.string().describe("The city or place name to geocode"),
+          location: z.string().describe("The city or place name to geocode. Use 'nearby' if the user's current location is intended."),
         }),
         execute: async (params) => {
           console.log("Executing geocode_location", params);
-          return await geocode_location(params);
+          const result = await geocode_location({ ...params, userLocation: userLocation || undefined });
+          
+          // Log tool execution
+          await updateAuditLog(auditLog.id, {
+            steps: [...(auditLog.steps || []), {
+              step_index: auditLog.steps.length,
+              tool_name: "geocode_location",
+              status: result.success ? "executed" : "failed",
+              input: params,
+              output: result.result,
+              error: result.error,
+              timestamp: new Date().toISOString()
+            }]
+          });
+
+          return result;
         },
       }),
       search_restaurant: tool({
@@ -119,12 +153,25 @@ export async function POST(req: Request) {
           cuisine: z.string().optional().describe("The type of cuisine, e.g. 'Italian', 'Sushi'"),
           lat: z.number().optional().describe("The latitude coordinate"),
           lon: z.number().optional().describe("The longitude coordinate"),
-          location: z.string().optional().describe("The city or place name if lat/lon are not available"),
+          location: z.string().optional().describe("The city or place name if lat/lon are not available. Use 'nearby' if applicable."),
         }),
         execute: async (params: any) => {
           console.log("Executing search_restaurant", params);
-          const result = await search_restaurant(params);
+          const result = await search_restaurant({ ...params, userLocation: userLocation || undefined });
           
+          // Log tool execution
+          await updateAuditLog(auditLog.id, {
+            steps: [...(auditLog.steps || []), {
+              step_index: auditLog.steps.length,
+              tool_name: "search_restaurant",
+              status: result.success ? "executed" : "failed",
+              input: params,
+              output: result.result,
+              error: result.error,
+              timestamp: new Date().toISOString()
+            }]
+          });
+
           // Persistence: Save cuisine preference if successful
           if (result.success && params.cuisine && redis) {
             try {
@@ -147,8 +194,8 @@ export async function POST(req: Request) {
         description: "Add an event to the user's calendar.",
         inputSchema: z.object({
           title: z.string().describe("The title of the event"),
-          start_time: z.string().describe("The start time (ISO format or relative like 'tomorrow at 7pm')"),
-          end_time: z.string().describe("The end time (ISO format or relative)"),
+          start_time: z.string().describe("The start time MUST be a valid ISO 8601 string."),
+          end_time: z.string().describe("The end time MUST be a valid ISO 8601 string."),
           location: z.string().optional().describe("The location of the event"),
           restaurant_name: z.string().optional().describe("Name of the restaurant"),
           restaurant_address: z.string().optional().describe("Address of the restaurant"),
@@ -181,7 +228,22 @@ export async function POST(req: Request) {
             }
           }
           
-          return await add_calendar_event(params);
+          const result = await add_calendar_event(params);
+
+          // Log tool execution
+          await updateAuditLog(auditLog.id, {
+            steps: [...(auditLog.steps || []), {
+              step_index: auditLog.steps.length,
+              tool_name: "add_calendar_event",
+              status: result.success ? "executed" : "failed",
+              input: params,
+              output: result.result,
+              error: result.error,
+              timestamp: new Date().toISOString()
+            }]
+          });
+
+          return result;
         },
       }),
     };
@@ -205,6 +267,23 @@ export async function POST(req: Request) {
       system: systemPrompt,
       tools: enabledTools,
       stopWhen: stepCountIs(5),
+      onFinish: async (event) => {
+        const totalLatency = Date.now() - startTime;
+        try {
+          // Retrieve current log to preserve steps already logged in execute
+          const currentLog = await (await import("@/lib/audit")).getAuditLog(auditLog.id);
+          await (await import("@/lib/audit")).updateAuditLog(auditLog.id, {
+            final_outcome: event.text,
+            inferenceLatencies: {
+              ...currentLog?.inferenceLatencies,
+              total: totalLatency,
+              planGeneration: totalLatency - (currentLog?.inferenceLatencies?.intentInference || 0)
+            }
+          });
+        } catch (err) {
+          console.error("Failed to update final audit log:", err);
+        }
+      }
     });
 
     return result.toUIMessageStreamResponse({

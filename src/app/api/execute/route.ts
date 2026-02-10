@@ -77,58 +77,41 @@ export async function POST(req: NextRequest) {
     });
 
     try {
-      const result = await executeTool(step.tool_name, resolvedParameters);
+      const result = await executeTool(step.tool_name, resolvedParameters, { 
+        audit_log_id, 
+        step_index 
+      });
       
-      // Check for "no results" scenario specifically for search_restaurant
-      if (step.tool_name === "search_restaurant" && result.success && (!result.result || result.result.length === 0)) {
-        console.log("No restaurants found, triggering re-plan...");
-        const newPlan = await replan(log.intent, log, step_index, "No restaurants found for the given criteria.");
-        
-        const stepLog = {
-          step_index,
-          tool_name: step.tool_name,
-          status: "failed" as const,
-          input: resolvedParameters,
-          output: result,
-          error: "No results found. Re-planning...",
-        };
-
-        const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-        await updateAuditLog(audit_log_id, { 
-          steps: updatedSteps, 
-          plan: newPlan,
-          final_outcome: "Re-planned due to no results." 
-        });
-
-        return NextResponse.json({ 
-          result, 
-          audit_log_id, 
-          replanned: true, 
-          new_plan: newPlan 
-        });
-      }
-
       const stepLog = {
         step_index,
         tool_name: step.tool_name,
-        status: "executed" as const,
+        status: ((result.success && !result.replanned) ? "executed" : "failed") as "executed" | "failed",
         input: resolvedParameters,
-        output: result,
+        output: result.result,
+        error: result.success ? undefined : result.error,
         confirmed_by_user: user_confirmed,
+        timestamp: new Date().toISOString()
       };
 
       const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
       await updateAuditLog(audit_log_id, { steps: updatedSteps });
 
-      // Check if all steps are done
-      if (updatedSteps.length === log.plan.ordered_steps.length) {
+      // Check if all steps are done (only if not replanned)
+      if (!result.replanned && updatedSteps.length === log.plan.ordered_steps.length) {
         await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
       }
 
-      return NextResponse.json({ result, audit_log_id });
+      return NextResponse.json({ 
+        result: result.result, 
+        audit_log_id,
+        replanned: !!result.replanned,
+        new_plan: result.new_plan,
+        error: result.success ? undefined : result.error
+      });
     } catch (error: any) {
       console.error("Execution error, triggering re-plan:", error);
       
+      const { replan } = await import("@/lib/llm");
       let newPlan = null;
       try {
         newPlan = await replan(log.intent, log, step_index, error.message);
@@ -142,6 +125,7 @@ export async function POST(req: NextRequest) {
         status: "failed" as const,
         input: resolvedParameters,
         error: error.message,
+        timestamp: new Date().toISOString()
       };
       const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
       

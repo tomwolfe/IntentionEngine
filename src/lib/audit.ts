@@ -7,6 +7,13 @@ export interface AuditLog {
   timestamp: string;
   intent: string;
   plan?: Plan;
+  userLocation?: { lat: number; lng: number };
+  rawModelResponse?: string;
+  inferenceLatencies?: {
+    intentInference?: number;
+    planGeneration?: number;
+    total?: number;
+  };
   validation_error?: string;
   steps: Array<{
     step_index: number;
@@ -16,6 +23,7 @@ export interface AuditLog {
     output?: any;
     error?: string;
     confirmed_by_user?: boolean;
+    timestamp: string;
   }>;
   final_outcome?: string;
 }
@@ -29,13 +37,18 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
 
 const AUDIT_LOG_PREFIX = "audit_log:";
 
-export async function createAuditLog(intent: string, plan?: Plan): Promise<AuditLog> {
+export async function createAuditLog(
+  intent: string, 
+  plan?: Plan, 
+  userLocation?: { lat: number; lng: number }
+): Promise<AuditLog> {
   const id = Math.random().toString(36).substring(7);
   const log: AuditLog = {
     id,
     timestamp: new Date().toISOString(),
     intent,
     plan,
+    userLocation,
     steps: [],
   };
 

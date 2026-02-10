@@ -11,17 +11,40 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   : null;
 
 const GeocodeSchema = z.object({
-  location: z.string().min(1)
+  location: z.string().min(1),
+  userLocation: z.object({
+    lat: z.number(),
+    lng: z.number()
+  }).optional()
 });
 
 export async function geocode_location(params: z.infer<typeof GeocodeSchema>) {
   const validated = GeocodeSchema.safeParse(params);
   if (!validated.success) return { success: false, error: "Invalid parameters" };
-  const { location } = validated.data;
+  const { location, userLocation } = validated.data;
+
+  // Vague location handling
+  const vagueTerms = ["nearby", "near me", "around here", "here", "current location"];
+  if (vagueTerms.includes(location.toLowerCase()) && userLocation) {
+    console.log("Vague location detected, using userLocation bias.");
+    return {
+      success: true,
+      result: {
+        lat: userLocation.lat,
+        lon: userLocation.lng
+      }
+    };
+  }
 
   console.log(`Geocoding location: ${location}...`);
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    // Bias the search with userLocation if available
+    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    if (userLocation) {
+      // Nominatim supports viewbox or bounded parameters, but for simple bias we can try to append context
+      // Or just use the userLocation as a fallback if search fails
+    }
+
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'IntentionEngine/1.0'
@@ -47,19 +70,30 @@ const SearchRestaurantSchema = z.object({
   cuisine: z.string().optional(),
   lat: z.number().optional(),
   lon: z.number().optional(),
-  location: z.string().optional()
+  location: z.string().optional(),
+  userLocation: z.object({
+    lat: z.number(),
+    lng: z.number()
+  }).optional()
 });
 
 export async function search_restaurant(params: z.infer<typeof SearchRestaurantSchema>) {
   const validated = SearchRestaurantSchema.safeParse(params);
   if (!validated.success) return { success: false, error: "Invalid parameters" };
-  let { cuisine, lat, lon, location } = validated.data;
+  let { cuisine, lat, lon, location, userLocation } = validated.data;
   
-  if ((lat === undefined || lon === undefined) && location) {
-    const geo = await geocode_location({ location });
+  if ((lat === undefined || lon === undefined) && (location || userLocation)) {
+    // If we have a location string, or just userLocation and no lat/lon
+    const geo = await geocode_location({ 
+      location: location || "nearby", 
+      userLocation 
+    });
     if (geo.success && geo.result) {
       lat = geo.result.lat;
       lon = geo.result.lon;
+    } else if (!location && userLocation) {
+        lat = userLocation.lat;
+        lon = userLocation.lng;
     } else {
       return { success: false, error: "Could not geocode location and no coordinates provided." };
     }
@@ -223,10 +257,44 @@ export const TOOLS: Record<string, Function> = {
   geocode_location,
 };
 
-export async function executeTool(tool_name: string, parameters: any) {
+export async function executeTool(
+  tool_name: string, 
+  parameters: any, 
+  context?: { audit_log_id: string; step_index: number }
+) {
   const tool = TOOLS[tool_name];
   if (!tool) {
     throw new Error(`Tool ${tool_name} not found`);
   }
-  return await tool(parameters);
+
+  const result = await tool(parameters);
+
+  if (result.success === false && context) {
+    console.log(`Tool ${tool_name} returned success: false, triggering re-plan...`);
+    const { getAuditLog, updateAuditLog } = await import("./audit");
+    const { replan } = await import("./llm");
+
+    const log = await getAuditLog(context.audit_log_id);
+    if (log && log.plan) {
+      try {
+        const newPlan = await replan(log.intent, log, context.step_index, result.error || "Tool returned failure");
+        
+        await updateAuditLog(context.audit_log_id, {
+          plan: newPlan,
+          final_outcome: `Re-planned due to ${tool_name} failure: ${result.error}`
+        });
+
+        return {
+          ...result,
+          replanned: true,
+          new_plan: newPlan
+        };
+      } catch (replanError: any) {
+        console.error("Re-planning failed after tool failure:", replanError);
+      }
+    }
+  }
+
+  return result;
 }
+

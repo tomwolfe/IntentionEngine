@@ -17,13 +17,21 @@ export interface IntentInferenceResult {
  * Infer intent from raw text.
  * Uses generateObject to ensure strict enforcement of the Intent interface.
  */
-export async function inferIntent(text: string, avoidTools: string[] = []): Promise<IntentInferenceResult> {
+export async function inferIntent(
+  text: string, 
+  avoidTools: string[] = [],
+  remedySuggestions: string[] = []
+): Promise<IntentInferenceResult> {
   if (!text || text.trim().length === 0) {
     throw new Error("Input text is empty");
   }
 
   const avoidToolsContext = avoidTools.length > 0 
     ? `\nPREVIOUSLY FAILED TOOLS (AVOID IF POSSIBLE): ${avoidTools.join(", ")}`
+    : "";
+
+  const remedyContext = remedySuggestions.length > 0
+    ? `\nLESSONS FROM PREVIOUS FAILURES:\n${remedySuggestions.map(s => `- ${s}`).join("\n")}`
     : "";
 
   const { object } = await generateObject({
@@ -38,7 +46,8 @@ Your task is to convert raw user text into a structured JSON Intent object.
 - question: If confidence < 0.7, you MUST return an intent type of 'clarification_needed' and provide a specific question to ask the user to clarify their intent.
 
 Use PLANNING if the request requires multiple steps (e.g., finding a place and then scheduling it).
-${avoidToolsContext}`,
+${avoidToolsContext}
+${remedyContext}`,
     prompt: text,
   });
 

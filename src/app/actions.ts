@@ -1,7 +1,7 @@
 "use server";
 
 import { registry, ExecuteToolResult } from "@/lib/tools";
-import { getAuditLog, updateAuditLog, getUserAuditLogs } from "@/lib/audit";
+import { getAuditLog, updateAuditLog, getUserAuditLogs, saveFailureMemory, updateToolHealth } from "@/lib/audit";
 import { replan } from "@/lib/llm";
 import { AuditLog } from "@/lib/types";
 
@@ -18,13 +18,13 @@ export async function executeToolWithContext(
   const startTime = Date.now();
   let result: any;
   let attempts = 0;
-  const maxRetries = 3;
+  const maxRetries = 2;
 
   while (attempts < maxRetries) {
     try {
       result = await toolDef.execute(parameters);
       
-      const technicalErrorKeywords = ["429", "network", "timeout", "fetch", "socket", "hang up", "overpass api error"];
+      const technicalErrorKeywords = ["429", "500", "502", "503", "504", "network", "timeout", "fetch", "socket", "hang up", "overpass api error"];
       const isTechnicalError = !result.success && result.error && technicalErrorKeywords.some(k => result.error.toLowerCase().includes(k));
 
       if (isTechnicalError && attempts < maxRetries - 1) {
@@ -43,6 +43,10 @@ export async function executeToolWithContext(
   }
 
   const duration = Date.now() - startTime;
+  
+  // Track tool health
+  await updateToolHealth(tool_name, duration, result.success, result.error);
+
   const log = await getAuditLog(context.audit_log_id);
   
   if (log) {
@@ -69,6 +73,48 @@ export async function executeToolWithContext(
       toolExecutionLatencies,
       steps: updatedSteps,
     });
+
+    // Proactive Failure Learning
+    if (!result.success) {
+      const { generateRemedy } = await import("./llm");
+      const remedy = await generateRemedy(tool_name, result.error || "Unknown error", parameters);
+      
+      await saveFailureMemory(
+        context.audit_log_id,
+        tool_name,
+        result.error || "Unknown error",
+        parameters,
+        log.intent,
+        remedy
+      );
+
+      // Autonomous Re-planning
+      let replanSummary = "";
+      if ((log.replanned_count || 0) < 2) {
+        try {
+          console.log(`Triggering autonomous replan for ${tool_name} failure...`);
+          const newPlan = await replan(
+            log.intent,
+            { ...log, steps: updatedSteps },
+            context.step_index,
+            result.error || "Unknown error",
+            { parameters, result: result.result }
+          );
+
+          await updateAuditLog(context.audit_log_id, {
+            plan: newPlan,
+            replanned_count: (log.replanned_count || 0) + 1
+          });
+          
+          replanSummary = `\nAutonomous Re-plan Generated: ${newPlan.summary}`;
+        } catch (replanError) {
+          console.error("Failed to generate autonomous replan:", replanError);
+        }
+      }
+
+      // Append remedy to result error for LLM awareness
+      result.error = `${result.error}\nRemedy Suggestion: ${remedy}${replanSummary}`;
+    }
   }
 
   return result;

@@ -5,9 +5,8 @@ import { registry, geocode_location } from "@/lib/tools";
 import { env } from "@/lib/config";
 import { inferIntent } from "@/lib/intent";
 import { Redis } from "@upstash/redis";
-import { createAuditLog, updateAuditLog, getRelevantFailures, getAuditLog } from "@/lib/audit";
+import { createAuditLog, updateAuditLog, getRelevantFailures, getAuditLog, getSystemStatus } from "@/lib/audit";
 import { executeToolWithContext, getProvider } from "@/app/actions";
-import { SystemHealth } from "@/lib/types";
 
 export const runtime = "edge";
 export const maxDuration = 30;
@@ -27,23 +26,6 @@ const ChatRequestSchema = z.object({
   }).nullable().optional(),
 });
 
-// Pillar 2.2: Latency-Aware LLM Routing (Mock/Helper)
-async function getSystemHealth(): Promise<SystemHealth> {
-  // In a real system, this would come from a real-time monitor or Redis
-  return {
-    tools: {
-      "search_restaurant": {
-        tool_name: "search_restaurant",
-        success_rate: 0.95,
-        total_executions: 100,
-        average_latency_ms: 2500
-      }
-    },
-    overall_status: 'healthy',
-    last_updated: new Date().toISOString()
-  };
-}
-
 export async function POST(req: Request) {
   try {
     const rawBody = await req.json();
@@ -61,10 +43,16 @@ export async function POST(req: Request) {
     const lastUserMessage = [...coreMessages].reverse().find(m => m.role === "user");
     const userText = typeof lastUserMessage?.content === "string" ? lastUserMessage.content : "";
 
-    // Step 1: Infer Intent
-    const { intent, rawResponse: rawIntentResponse } = await inferIntent(userText);
+    // Step 1: Vectorized Failure Lookup & Remedy Retrieval
+    const relevantFailures = await getRelevantFailures(userText, userIp);
+    const remedySuggestions = relevantFailures
+      .filter(f => f.remedy_suggestion)
+      .map(f => f.remedy_suggestion!);
+
+    // Step 2: Infer Intent with Lessons from the past
+    const { intent, rawResponse: rawIntentResponse } = await inferIntent(userText, [], remedySuggestions);
     
-    // Step 2: Pillar 2.1 - Speculative Execution (Proactive Retrieval)
+    // Step 3: Speculative Execution (Proactive Retrieval)
     let speculativeGeoPromise: Promise<any> | null = null;
     if (intent.parameters?.location) {
       speculativeGeoPromise = geocode_location({ 
@@ -73,30 +61,39 @@ export async function POST(req: Request) {
       });
     }
 
-    // Step 3: Pillar 1.2 - Vectorized Failure Lookup
-    const relevantFailures = await getRelevantFailures(userText, userIp);
     const failureMemoryContext = relevantFailures.length > 0
-      ? `\nLESSONS FROM PREVIOUS ATTEMPTS:\n${relevantFailures.map(f => `- Warning: Previous ${f.failed_tool_name} failed with error "${f.error_message}".`).join('\n')}`
+      ? `\nLESSONS FROM PREVIOUS ATTEMPTS:\n${relevantFailures.map(f => `- Warning: Previous ${f.failed_tool_name} failed. Remedy: ${f.remedy_suggestion}`).join('\n')}`
       : "";
 
-    // Step 4: Pillar 2.2 - Latency Monitoring
-    const health = await getSystemHealth();
+    // Step 4: Real-time System Heartbeat
+    const health = await getSystemStatus();
     const latencyWarnings = Object.values(health.tools)
-      .filter(t => t.average_latency_ms > 2000)
-      .map(t => `Warning: Tool ${t.tool_name} is currently slow. Prefer alternatives if possible.`)
+      .filter((t: any) => t.average_latency_ms > 2000 || t.success_rate < 0.8)
+      .map((t: any) => `Warning: Tool ${t.tool_name} is ${t.average_latency_ms > 2000 ? 'slow' : 'unreliable'}. Prefer alternatives.`)
       .join('\n');
+
+    const isSystemDegraded = health.overall_status === 'degraded' || health.average_latency_ms > 2000;
 
     // Step 5: Initialize Audit Log
     const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined, userIp);
-    await updateAuditLog(auditLog.id, { rawModelResponse: rawIntentResponse });
+    await updateAuditLog(auditLog.id, { 
+      rawModelResponse: rawIntentResponse,
+      inferenceLatencies: {
+        intentInference: Date.now() - startTime
+      }
+    });
 
     // Step 6: Tool Definitions (Wrapped for Registry Pattern)
     const enabledTools: any = {};
     const registryTools = registry.getAllTools();
 
     for (const toolDef of registryTools) {
+      // Deprioritize LOW efficiency tools
+      const toolHealth = health.tools[toolDef.name];
+      const isLowEfficiency = toolHealth && (toolHealth.success_rate < 0.7 || toolHealth.average_latency_ms > 5000);
+
       enabledTools[toolDef.name] = tool({
-        description: toolDef.description,
+        description: isLowEfficiency ? `${toolDef.description} (NOTE: This tool is currently underperforming)` : toolDef.description,
         inputSchema: toolDef.parameters,
         execute: async (params) => {
           // Check speculative result
@@ -112,17 +109,6 @@ export async function POST(req: Request) {
             audit_log_id: auditLog.id,
             step_index: (await getAuditLog(auditLog.id))?.steps.length || 0
           });
-
-          if (!result.success) {
-            // Pillar 1.3: Track re-plans
-            const currentLog = await getAuditLog(auditLog.id);
-            const newReplannedCount = (currentLog?.replanned_count || 0) + 1;
-            await updateAuditLog(auditLog.id, { replanned_count: newReplannedCount });
-            
-            if (newReplannedCount >= 3) {
-                return { success: false, error: "Critical failure: Maximum re-planning attempts reached. Please inform the user we cannot proceed." };
-            }
-          }
 
           return result;
         }
@@ -144,6 +130,8 @@ export async function POST(req: Request) {
     ${failureMemoryContext}
     ${latencyWarnings}
 
+    ${isSystemDegraded ? "SYSTEM NOTICE: Performance is currently degraded. Be concise and prioritize high-success tools." : ""}
+
     If a tool fails, explain the error and propose a recovery plan or alternative.
     `;
 
@@ -157,12 +145,15 @@ export async function POST(req: Request) {
         const totalLatency = Date.now() - startTime;
         const currentLog = await getAuditLog(auditLog.id);
         
-        // Pillar 1.4: Efficiency Score
-        const efficiencyScore = (event.text.length > 0 ? 1 : 0.5) / (totalLatency / 1000);
+        // Efficiency Score: (Result Quality (binary 1/0 for now) / Total Latency in seconds)
+        const quality = event.finishReason === 'stop' ? 1.0 : 0.5;
+        const efficiencyScore = quality / (totalLatency / 1000);
+        const efficiencyFlag = efficiencyScore < 0.2 ? "LOW" : undefined;
         
         await updateAuditLog(auditLog.id, {
           final_outcome: event.text,
           efficiency_score: efficiencyScore,
+          efficiency_flag: efficiencyFlag,
           inferenceLatencies: {
             ...currentLog?.inferenceLatencies,
             total: totalLatency,

@@ -212,3 +212,48 @@ export async function replan(
   const planJson = JSON.parse(data.choices[0].message.content);
   return PlanSchema.parse(planJson);
 }
+
+export async function generateRemedy(
+  failedToolName: string,
+  errorMessage: string,
+  inputParams: any
+): Promise<string> {
+  const apiKey = env.LLM_API_KEY;
+  const baseUrl = env.LLM_BASE_URL;
+  const model = env.LLM_MODEL;
+
+  if (!apiKey) {
+    return "Validate parameters or try an alternative tool if available.";
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        {
+          role: "system",
+          content: `You are a Systems Debugger for an Intention Engine.
+          A tool execution failed. Analyze the error and input parameters, and provide a CONCISE remedy suggestion (max 2 sentences) for an LLM that will be generating a plan in the future.
+          The goal is to prevent this specific error from happening again by providing better instructions or parameter formatting.`
+        },
+        {
+          role: "user",
+          content: `Tool Name: ${failedToolName}\nError: ${errorMessage}\nInput Parameters: ${JSON.stringify(inputParams)}`
+        }
+      ],
+      max_tokens: 100
+    }),
+  });
+
+  if (!response.ok) {
+    return "Validate parameters or try an alternative tool if available.";
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
+}

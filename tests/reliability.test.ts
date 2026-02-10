@@ -179,7 +179,8 @@ describe('Security and Sanitization', () => {
     const input = { location: '<script>alert("xss")</script>Paris' };
     const result = GeocodeLocationSchema.safeParse(input);
     expect(result.success).toBe(true);
-    expect(result.data?.location).toBe('<script>alert("xss")</script>Paris');
+    // Script tags should be removed for XSS protection
+    expect(result.data?.location).toBe('scriptalert("xss")/scriptParis');
   });
 
   it('should handle SQL injection-like patterns gracefully', () => {

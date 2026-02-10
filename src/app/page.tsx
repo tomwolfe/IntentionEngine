@@ -6,7 +6,9 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isTo
 import { LocalLLMEngine } from "@/lib/local-llm-engine";
 import { classifyIntent } from "@/lib/intent-schema";
 import { executeTool } from "@/lib/tools";
-import { Calendar, Mic, AlertCircle } from "lucide-react";
+import { ExecutionEngine, ExecutionResult } from "@/lib/execution-engine";
+import { categorizeError, getUserFriendlyMessage, isRetryableError } from "@/lib/error-recovery";
+import { Calendar, Mic, AlertCircle, RotateCcw } from "lucide-react";
 
 class LocalProvider {
   private engine: LocalLLMEngine | null = null;
@@ -72,6 +74,11 @@ export default function Home() {
     wineShopResult: null,
     sessionContext: {}
   });
+  // Session ID for cache isolation - generated once per session
+  const [sessionId] = useState(() => crypto.randomUUID());
+  // Track last intent for retry functionality
+  const [lastIntent, setLastIntent] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -153,8 +160,21 @@ export default function Home() {
 
   const isLoading = status === "streaming" || status === "submitted" || (activeIntent?.type === "SIMPLE" && !localResponse) || isExecutingChain;
 
-      const processIntent = async (currentInput: string) => {
+      const retryLastIntent = async () => {
+        if (!lastIntent) return;
+        
+        setHasChainFailure(false);
+        setErrorMessage(null);
+        await processIntent(lastIntent, true);
+      };
+
+      const processIntent = async (currentInput: string, isRetry: boolean = false) => {
         if (!currentInput.trim() || isLoading) return;
+        
+        // Store intent for potential retry
+        if (!isRetry) {
+          setLastIntent(currentInput);
+        }
   
         // Immediate feedback: Set thinking state and trigger haptic pulse
         setActiveIntent({ type: "THINKING", isSpecialIntent: true });
@@ -220,7 +240,8 @@ export default function Home() {
                 userLocation, 
                 isSpecialIntent: finalClassification.isSpecialIntent, 
                 dnaCuisine,
-                session_context: whisperData.sessionContext
+                session_context: whisperData.sessionContext,
+                sessionId
               } 
             }
           );
@@ -293,111 +314,49 @@ export default function Home() {
         setLocalResponse("");
         setHasChainFailure(false);
         setClientAuditLog(null);
-        
-        // Offline Mode: Check if offline
-        const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
-        const toolResults: any[] = [];
-        let restaurantData: any = null;
-        let hasCalendarEvent = false;
-        let wineShopResult: any = null;
-        let failedStepIndex: number | null = null;
-        let failureError: string | null = null;
+        const engine = new ExecutionEngine({ sessionId, localProvider });
 
         try {
-          for (let i = 0; i < plan.ordered_steps.length; i++) {
-            const step = plan.ordered_steps[i];
-            
-            // Autonomous Wine Shop: Trigger in background after restaurant search
-            if (restaurantData?.cuisine && step.tool_name === 'add_calendar_event') {
-              try {
-                const res = await executeTool('find_event', {
-                  location: restaurantData.address,
-                  query: 'wine shop'
-                });
-                if (res?.success && res?.result?.[0]) {
-                  wineShopResult = res.result[0];
-                }
-              } catch (e) {
-                console.warn("Silent wine shop search failed", e);
+          const result = await engine.executeChain(
+            plan,
+            originalClassification,
+            {
+              onStepStart: (index) => {
+                console.log(`Starting step ${index}`);
+              },
+              onStepComplete: (index, _result, duration) => {
+                console.log(`Completed step ${index} in ${duration}ms`);
+              },
+              onStepError: (index, error, duration) => {
+                console.error(`Step ${index} failed after ${duration}ms:`, error);
+                setHasChainFailure(true);
+                
+                // Set user-friendly error message
+                const categorized = categorizeError(error);
+                setErrorMessage(categorized.userMessage);
+              },
+              onChainComplete: (_results, totalDuration) => {
+                console.log(`Chain completed in ${totalDuration}ms`);
               }
             }
+          );
 
-            try {
-              const { result } = await executeTool(id, i);
-              
-              toolResults.push({
-                type: "dynamic-tool",
-                toolName: step.tool_name,
-                toolCallId: `call_${id}_${i}`,
-                state: "output-available",
-                input: step.parameters,
-                output: result
-              });
-              
-              // Track restaurant data for whisper and session context
-              if (step.tool_name === 'search_restaurant' && result?.success && result?.result?.[0]) {
-                restaurantData = result.result[0];
-                updateSessionContext({
-                  cuisine: restaurantData.cuisine,
-                  ambiance: originalClassification.isSpecialIntent ? 'romantic' : 'standard',
-                  occasion: originalClassification.metadata?.isDateNight ? 'date_night' : undefined
-                });
-              }
-              
-              // Track if we have a calendar event
-              if (step.tool_name === 'add_calendar_event') {
-                hasCalendarEvent = true;
-              }
-            } catch (stepErr: any) {
-              console.error(`Step ${i} (${step.tool_name}) failed:`, stepErr);
-              failedStepIndex = i;
-              failureError = stepErr.message;
-              setHasChainFailure(true);
-              break; // Halt execution on critical step failure
-            }
-          }
-  
-          // Propagation: Ensure restaurant details flow into the calendar part for UI/ICS consistency
-          const searchPart = toolResults.find(p => p.toolName === 'search_restaurant');
-          const calendarPart = toolResults.find(p => p.toolName === 'add_calendar_event');
-
-          if (searchPart && calendarPart) {
-            const restaurant = searchPart.output.result[0];
-            if (restaurant) {
-              calendarPart.input = {
-                ...calendarPart.input,
-                title: restaurant.name,
-                location: restaurant.address,
-                restaurant_name: restaurant.name,
-                restaurant_address: restaurant.address,
-                wine_shop: wineShopResult ? { name: wineShopResult.name, address: wineShopResult.location } : undefined
-              };
-            }
-          }
-          
-          // Pre-emptive Whisper Validation
-          let finalSummary = plan.summary;
-          if (failedStepIndex !== null) {
-            finalSummary = "We encountered a minor issue while preparing your plans. Please review the details below.";
-          } else {
-            const forbiddenWords = ["found", "searched", "scheduled", "prepared", "I've"];
-            const isBadWhisper = !finalSummary || finalSummary.length > 100 || forbiddenWords.some(word => finalSummary.toLowerCase().includes(word));
-
-            if (isBadWhisper || isOffline) {
-              try {
-                const engine = await localProvider.getEngine(() => {});
-                await engine.loadModel("Phi-3.5-mini-instruct-q4f16_1-MLC");
-                const whisperPrompt = `Describe this in one poetic sentence under 100 chars: ${originalClassification.reason}. No AI words.`;
-                finalSummary = await engine.generate(whisperPrompt);
-                if (finalSummary.length > 100) finalSummary = "Your arrangements are ready.";
-              } catch (err) {
-                finalSummary = "A bottle of wine has been suggested for your evening.";
-              }
-            }
+          // Update session context with restaurant data
+          if (result.restaurantData) {
+            const contextUpdates = engine.getSessionContextUpdates(
+              result.restaurantData,
+              originalClassification
+            );
+            updateSessionContext(contextUpdates);
           }
 
-          setWhisperData(prev => ({ ...prev, show: false, restaurant: restaurantData, wineShopResult }));
+          setWhisperData(prev => ({
+            ...prev,
+            show: false,
+            restaurant: result.restaurantData,
+            wineShopResult: result.wineShopResult
+          }));
 
           // Finalize the chain by updating messages to trigger the result card
           setMessages([
@@ -406,20 +365,20 @@ export default function Home() {
               id: `automated_${id}`,
               role: "assistant",
               parts: [
-                { type: "text", text: finalSummary },
-                ...toolResults
+                { type: "text", text: result.finalSummary },
+                ...result.toolResults as any
               ]
-            }
+            } as any
           ]);
-          
+
           // Capture client-side audit log if failure occurred
-          if (failedStepIndex !== null) {
+          if (result.failedStepIndex !== null) {
             setClientAuditLog({
               id: id,
               timestamp: new Date().toISOString(),
               plan: plan,
               steps: [
-                ...toolResults.map((tr, idx) => ({
+                ...result.toolResults.map((tr, idx) => ({
                   step_index: idx,
                   tool_name: tr.toolName,
                   status: "executed",
@@ -427,22 +386,22 @@ export default function Home() {
                   output: tr.output
                 })),
                 {
-                  step_index: failedStepIndex,
-                  tool_name: plan.ordered_steps[failedStepIndex].tool_name,
+                  step_index: result.failedStepIndex,
+                  tool_name: plan.ordered_steps[result.failedStepIndex].tool_name,
                   status: "failed",
-                  input: plan.ordered_steps[failedStepIndex].parameters,
-                  error: failureError
+                  input: plan.ordered_steps[result.failedStepIndex].parameters,
+                  error: result.failureError
                 }
               ],
               final_outcome: {
                 status: "FAILURE",
-                message: `Execution failed at step ${failedStepIndex}: ${failureError}`
+                message: `Execution failed at step ${result.failedStepIndex}: ${result.failureError}`
               }
             });
           }
 
           // Restore the classification state so UI logic (like isSimplified) works correctly
-          setActiveIntent({ ...originalClassification, plan: { ...plan, summary: finalSummary } });
+          setActiveIntent({ ...originalClassification, plan: { ...plan, summary: result.finalSummary } });
         } catch (err) {
           console.error("Automated chain failed", err);
           setActiveIntent({ type: "ERROR", isSpecialIntent: true });
@@ -684,15 +643,27 @@ export default function Home() {
                     <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mb-4">
                       <AlertCircle size={24} />
                     </div>
-                    <p className="text-amber-900 text-lg font-medium mb-6">
-                      We encountered a minor issue while preparing your plans. Please review the details below.
+                    <p className="text-amber-900 text-lg font-medium mb-2">
+                      {errorMessage || "We encountered a minor issue while preparing your plans."}
                     </p>
-                    <button 
-                      onClick={() => setShowFailureDetails(true)}
-                      className="px-8 py-3 bg-amber-200/50 hover:bg-amber-200 text-amber-800 rounded-full text-sm font-bold transition-all active:scale-95"
-                    >
-                      View Details
-                    </button>
+                    <div className="flex gap-3 mt-6">
+                      {lastIntent && (
+                        <button 
+                          onClick={retryLastIntent}
+                          disabled={isLoading}
+                          className="flex items-center gap-2 px-8 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300 text-white rounded-full text-sm font-bold transition-all active:scale-95"
+                        >
+                          <RotateCcw size={16} />
+                          Retry
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setShowFailureDetails(true)}
+                        className="px-8 py-3 bg-amber-200/50 hover:bg-amber-200 text-amber-800 rounded-full text-sm font-bold transition-all active:scale-95"
+                      >
+                        View Details
+                      </button>
+                    </div>
                   </div>
                 )}
                 
@@ -737,7 +708,7 @@ export default function Home() {
         <div className="w-1.5 h-1.5 bg-slate-200 rounded-full animate-pulse" />
       </div>
     );
-  }, [messages, localResponse, activeIntent, hasChainFailure]);
+  }, [messages, localResponse, activeIntent, hasChainFailure, errorMessage, lastIntent]);
 
   const isActuallySubmitted = activeIntent !== null;
   const isThinking = isLoading || activeIntent?.type === "THINKING";

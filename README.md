@@ -119,6 +119,7 @@ intentionengine/
 │   │   ├── audit/route.ts       # Audit log creation endpoint
 │   │   ├── execute/route.ts     # Execute a step from a generated plan
 │   │   ├── download-ics/route.ts # Generate .ics calendar file
+│   │   ├── health/route.ts      # Health check endpoint for monitoring
 │   │   └── reliability/status/route.ts # Monitor circuit breaker status
 │   │
 │   ├── lib/
@@ -126,14 +127,24 @@ intentionengine/
 │   │   ├── cache.ts             # Redis/memory caching layer (core)
 │   │   ├── config.ts            # Environment variable validation (core)
 │   │   ├── date-utils.ts        # Date parsing and formatting
+│   │   ├── error-recovery.ts    # Error categorization and user-friendly messages
+│   │   ├── execution-engine.ts  # State machine for tool execution (core)
 │   │   ├── intent.ts            # Intent classification logic (Hybrid Router)
 │   │   ├── intent-schema.ts     # Zod schema for intent types (SIMPLE, TOOL_SEARCH, etc.)
 │   │   ├── llm.ts               # Cloud LLM integration and fallback logic
 │   │   ├── local-llm-engine.ts  # WebLLM engine wrapper for Phi-3.5 (core)
+│   │   ├── logger.ts            # Structured logging for observability
 │   │   ├── reliability.ts       # High-level withReliability middleware (core)
 │   │   ├── schema.ts            # Zod schemas for Plan, Step, and API requests (core)
 │   │   ├── tools.ts             # Core tools (search, calendar, geocode, event, directions) with reliability wrappers (core)
-│   │   └── utils/reliability.ts # Low-level Circuit Breaker & Retry logic (core)
+│   │   ├── utils/reliability.ts # Low-level Circuit Breaker & Retry logic (core)
+│   │   └── validation-schemas.ts # Zod validation schemas with sanitization
+│   │
+│   ├── lib/__tests__/
+│   │   └── execution-engine.test.ts # Unit tests for ExecutionEngine
+│   │
+│   ├── scripts/
+│   │   └── redis-cleanup.ts     # Redis maintenance script (run via cron)
 │   │
 │   └── tests/
 │       ├── api.test.ts          # API endpoint unit tests
@@ -177,7 +188,9 @@ Edit `.env.local` with your values:
 *   `LLM_BASE_URL`: The base URL for your cloud LLM API (e.g., `https://api.z.ai/api/paas/v4`).
 *   `LLM_MODEL`: The primary cloud model (e.g., `glm-4.7-flash`).
 *   `SECONDARY_LLM_MODEL`: The fallback cloud model (e.g., `gpt-4o-mini`).
-*   `UPSTASH_REDIS_REST_URL` & `UPSTASH_REDIS_REST_TOKEN`: (Optional) For persistent caching. Get them from [Upstash](https://upstash.com/). If not set, an in-memory cache will be used.
+*   `UPSTASH_REDIS_REST_URL` & `UPSTASH_REDIS_REST_TOKEN`: (Optional) For persistent caching and rate limiting. Get them from [Upstash](https://upstash.com/). If not set, an in-memory cache will be used.
+*   `ALLOWED_ORIGINS`: (Optional) Comma-separated list of allowed origins for CORS. Defaults to `*` in development. Set to your production domain for security (e.g., `https://yourdomain.com`).
+*   `NODE_ENV`: Set to `production` in production environments for optimized logging and error handling.
 
 4.  **Run the Development Server**
 ```bash
@@ -203,11 +216,13 @@ npm run test
 ```
 
 ## 🔐 Security & Privacy
-*   **Local Processing:** Simple interactions happen on your device.
+*   **Local Processing:** Simple interactions happen on your device via WebLLM.
+*   **CORS Protection:** Configurable CORS headers prevent cross-origin abuse in production.
+*   **Rate Limiting:** Upstash-based rate limiting (100 req/hour/IP) protects against abuse.
+*   **Input Sanitization:** XSS prevention removes `<`, `>`, `javascript:`, and event handlers from all user inputs.
+*   **Session Isolation:** Unique session IDs ensure cache entries are isolated between users.
 *   **Minimal Data:** Only necessary data is sent to the cloud.
-*   **Input Sanitization:** All user inputs are rigorously validated and sanitized to prevent injection attacks.
-*   **Rate Limiting:** Protects against abuse.
-*   **Audit Logs:** Provide transparency into system behavior.
+*   **Audit Logs:** Provide transparency into system behavior with execution timing.
 *   **Zero Accounts:** No user authentication or persistent profiles. All data is ephemeral and session-scoped.
 
 ## 🌟 Future Enhancements

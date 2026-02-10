@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { intent, user_location, dna_cuisine, session_context } = validatedBody.data;
+      const { intent, user_location, dna_cuisine, session_context, sessionId } = validatedBody.data;
 
       // 1. CLASSIFY
       const classification = await classifyIntent(intent, session_context);

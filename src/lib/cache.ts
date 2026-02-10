@@ -17,6 +17,10 @@ const memoryCache = new LRUCache<string, any>({
 
 export const CACHE_TTLS = {
   RESTAURANTS: 86400, // 24 hours
+  AUDIT_LOGS: 2592000, // 30 days
+  VIBE_MEMORY: 604800, // 7 days
+  SESSION_CONTEXT: 3600, // 1 hour
+  DEFAULT: 3600, // 1 hour default
 };
 
 export const cache = {

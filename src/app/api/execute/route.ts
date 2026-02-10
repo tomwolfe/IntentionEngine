@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
       }
 
-      const { audit_log_id, step_index, user_confirmed, parameters: providedParams } = validatedBody.data;
+      const { audit_log_id, step_index, user_confirmed, parameters: providedParams, sessionId } = validatedBody.data;
 
       const log = await getAuditLog(audit_log_id);
       if (!log || !log.plan) {
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const result = await executeTool(step.tool_name, parameters);
+        const result = await executeTool(step.tool_name, { ...parameters, sessionId });
         
         const stepLog = {
           step_index,

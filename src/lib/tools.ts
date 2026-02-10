@@ -164,6 +164,7 @@ export async function search_restaurant(params: any) {
   
   let { cuisine, lat, lon, location, romantic } = validatedInput.data;
   const isSpecialIntent = (params as any).isSpecialIntent;
+  const sessionId = (params as any).sessionId;
 
   if (isSpecialIntent) {
     romantic = true;
@@ -183,7 +184,10 @@ export async function search_restaurant(params: any) {
     return { success: false, error: "Coordinates are required for restaurant search." };
   }
 
-  const cacheKey = `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`;
+  // Session-aware cache key to prevent cross-session data leakage
+  const cacheKey = sessionId 
+    ? `session:${sessionId}:restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`
+    : `restaurant:${cuisine || 'any'}:${lat.toFixed(2)}:${lon.toFixed(2)}:${romantic ? 'romantic' : 'all'}`;
 
   const cached = await cache.get<RestaurantResult[]>(cacheKey);
   if (cached) {
@@ -514,7 +518,7 @@ export const TOOLS: Record<string, Function> = Object.freeze({
   get_directions,
 });
 
-export async function executeTool(nameOrId: string, paramsOrIndex: any) {
+export async function executeTool(nameOrId: string, paramsOrIndex: any, sessionId?: string) {
   if (typeof paramsOrIndex === 'number') {
     // Client-side execution of a plan step via the API
     const response = await fetch("/api/execute", {
@@ -522,7 +526,8 @@ export async function executeTool(nameOrId: string, paramsOrIndex: any) {
       body: JSON.stringify({ 
         audit_log_id: nameOrId, 
         step_index: paramsOrIndex,
-        user_confirmed: true 
+        user_confirmed: true,
+        sessionId
       }),
       headers: { "Content-Type": "application/json" }
     });
@@ -539,5 +544,9 @@ export async function executeTool(nameOrId: string, paramsOrIndex: any) {
   if (!tool) {
     throw new Error(`Tool ${nameOrId} not found`);
   }
-  return await tool(paramsOrIndex);
+  // Pass sessionId to tool if it's a function that accepts it
+  const paramsWithSession = sessionId 
+    ? { ...paramsOrIndex, sessionId }
+    : paramsOrIndex;
+  return await tool(paramsWithSession);
 }

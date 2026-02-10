@@ -12,6 +12,31 @@ const ExecuteRequestSchema = z.object({
   user_confirmed: z.boolean().optional().default(false),
 });
 
+function getDeepPath(obj: any, path: string) {
+  const parts = path.split(".");
+  let current = obj;
+  for (const part of parts) {
+    if (part.includes("[") && part.includes("]")) {
+      const arrayPart = part.match(/(.+)\[(\d+)\]/);
+      if (arrayPart) {
+        const arrayName = arrayPart[1];
+        const index = parseInt(arrayPart[2]);
+        current = arrayName ? current[arrayName][index] : current[index];
+      } else {
+        // Case like [0] without array name
+        const indexMatch = part.match(/\[(\d+)\]/);
+        if (indexMatch) {
+          current = current[parseInt(indexMatch[1])];
+        }
+      }
+    } else {
+      current = current[part];
+    }
+    if (current === undefined) throw new Error(`Path ${path} not found in object`);
+  }
+  return current;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.json();

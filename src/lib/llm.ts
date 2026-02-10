@@ -75,9 +75,15 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
           ${locationContext}
 
           Available tools:
-          - geocode_location(location): Converts a city or place name to lat/lon coordinates.
-          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name).
+          - geocode_location(location): Converts a city or place name to lat/lon coordinates. Returns { lat, lon }.
+          - search_restaurant(cuisine, lat, lon, location): Searches for restaurants. If lat/lon are not known, provide 'location' (e.g., city name). Returns a list of restaurants.
           - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address): Adds an event to the calendar.
+
+          Tool Chaining & Context Injection:
+          1. Explicitly map outputs from previous steps to inputs of subsequent steps.
+          2. Use the syntax \`{{step_N.result.field}}\` to reference the output of a previous step (where N is the 0-based index of the step).
+          3. Example: If Step 0 is \`geocode_location\`, Step 1 should use \`{{step_0.result.lat}}\` and \`{{step_0.result.lon}}\` for its coordinates.
+          4. Example: If Step 1 is \`search_restaurant\`, Step 2 (\`add_calendar_event\`) should use \`{{step_1.result[0].name}}\` for \`restaurant_name\` if a specific restaurant selection is implied.
 
           Dinner Planning Rules:
           1. Restaurant search and user confirmation MUST precede calendar event creation.
@@ -86,6 +92,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
              - Prioritize 'romantic' atmosphere in search or description.
              - NEVER suggest pizza or Mexican cuisine.
           4. When adding a calendar event for a restaurant, include the 'restaurant_name' and 'restaurant_address' in the parameters.
+          5. Always use coordinates from \`geocode_location\` if you use that tool, instead of passing the raw location string to \`search_restaurant\`.
 
           Return ONLY pure JSON. No free text.`
         },
@@ -107,5 +114,72 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
   const planJson = JSON.parse(data.choices[0].message.content);
   
   // Validate against schema
+  return PlanSchema.parse(planJson);
+}
+
+export async function replan(originalIntent: string, auditLog: any, failedStepIndex: number, error: string): Promise<Plan> {
+  const apiKey = env.LLM_API_KEY;
+  const baseUrl = env.LLM_BASE_URL;
+  const model = env.LLM_MODEL;
+
+  if (!apiKey) {
+    throw new Error("LLM_API_KEY is not set. Re-planning requires LLM access.");
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        {
+          role: "system",
+          content: `You are an Intention Engine in Re-planning mode.
+          A previous plan failed at step ${failedStepIndex}.
+          Error: ${error}
+          
+          Original Intent: ${originalIntent}
+          
+          Current Audit Log: ${JSON.stringify(auditLog.steps)}
+          
+          Your task is to provide a NEW plan to recover from this error and still fulfill the original intent if possible, or suggest an alternative.
+          
+          Follow this schema strictly:
+          {
+            "intent_type": "string",
+            "constraints": ["string array"],
+            "ordered_steps": [
+              {
+                "tool_name": "string",
+                "parameters": { "param_name": "value" },
+                "requires_confirmation": true/false,
+                "description": "string"
+              }
+            ],
+            "summary": "string"
+          }
+
+          Available tools:
+          - geocode_location(location)
+          - search_restaurant(cuisine, lat, lon, location)
+          - add_calendar_event(title, start_time, end_time, location, restaurant_name, restaurant_address)
+
+          Return ONLY pure JSON.`
+        }
+      ],
+      response_format: { type: "json_object" }
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`LLM re-plan call failed: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const planJson = JSON.parse(data.choices[0].message.content);
   return PlanSchema.parse(planJson);
 }

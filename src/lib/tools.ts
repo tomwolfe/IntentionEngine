@@ -1,6 +1,7 @@
 import { RestaurantResultSchema } from "./schema";
 import { Redis } from "@upstash/redis";
 import { env } from "./config";
+import { z } from "zod";
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -9,10 +10,18 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
     })
   : null;
 
-export async function geocode_location(params: { location: string }) {
-  console.log(`Geocoding location: ${params.location}...`);
+const GeocodeSchema = z.object({
+  location: z.string().min(1)
+});
+
+export async function geocode_location(params: z.infer<typeof GeocodeSchema>) {
+  const validated = GeocodeSchema.safeParse(params);
+  if (!validated.success) return { success: false, error: "Invalid parameters" };
+  const { location } = validated.data;
+
+  console.log(`Geocoding location: ${location}...`);
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(params.location)}&format=json&limit=1`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'IntentionEngine/1.0'
@@ -34,8 +43,17 @@ export async function geocode_location(params: { location: string }) {
   }
 }
 
-export async function search_restaurant(params: { cuisine?: string; lat?: number; lon?: number; location?: string }) {
-  let { cuisine, lat, lon, location } = params;
+const SearchRestaurantSchema = z.object({
+  cuisine: z.string().optional(),
+  lat: z.number().optional(),
+  lon: z.number().optional(),
+  location: z.string().optional()
+});
+
+export async function search_restaurant(params: z.infer<typeof SearchRestaurantSchema>) {
+  const validated = SearchRestaurantSchema.safeParse(params);
+  if (!validated.success) return { success: false, error: "Invalid parameters" };
+  let { cuisine, lat, lon, location } = validated.data;
   
   if ((lat === undefined || lon === undefined) && location) {
     const geo = await geocode_location({ location });
@@ -73,9 +91,6 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
 
   try {
     // 2. Overpass Query
-    // We use nwr (node, way, relation) to capture all restaurant types.
-    // We use a union to search for the specific cuisine within 10km AND
-    // any restaurant within 5km as a fallback to ensure results are returned.
     const query = cuisine 
       ? `
         [out:json][timeout:10];
@@ -159,25 +174,31 @@ export async function search_restaurant(params: { cuisine?: string; lat?: number
   }
 }
 
-export async function add_calendar_event(params: { 
-  title: string; 
-  start_time: string; 
-  end_time: string; 
-  location?: string;
-  restaurant_name?: string;
-  restaurant_address?: string;
-}) {
-  console.log(`Adding calendar event: ${params.title} from ${params.start_time} to ${params.end_time}...`);
+const AddCalendarEventSchema = z.object({
+  title: z.string().min(1),
+  start_time: z.string(),
+  end_time: z.string(),
+  location: z.string().optional(),
+  restaurant_name: z.string().optional(),
+  restaurant_address: z.string().optional()
+});
+
+export async function add_calendar_event(params: z.infer<typeof AddCalendarEventSchema>) {
+  const validated = AddCalendarEventSchema.safeParse(params);
+  if (!validated.success) return { success: false, error: "Invalid parameters" };
+  const data = validated.data;
   
-  const description = (params.restaurant_name || params.restaurant_address)
-    ? `Restaurant: ${params.restaurant_name || 'N/A'}\nAddress: ${params.restaurant_address || 'N/A'}`
+  console.log(`Adding calendar event: ${data.title} from ${data.start_time} to ${data.end_time}...`);
+  
+  const description = (data.restaurant_name || data.restaurant_address)
+    ? `Restaurant: ${data.restaurant_name || 'N/A'}\nAddress: ${data.restaurant_address || 'N/A'}`
     : "";
 
   const queryParams = new URLSearchParams({
-    title: params.title,
-    start: params.start_time,
-    end: params.end_time,
-    location: params.location || params.restaurant_address || "",
+    title: data.title,
+    start: data.start_time,
+    end: data.end_time,
+    location: data.location || data.restaurant_address || "",
     description: description
   });
 
@@ -185,7 +206,13 @@ export async function add_calendar_event(params: {
     success: true,
     result: {
       status: "ready",
-      download_url: `/api/download-ics?${queryParams.toString()}`
+      download_url: `/api/download-ics?${queryParams.toString()}`,
+      event_details: {
+        title: data.title,
+        start_time: data.start_time,
+        end_time: data.end_time,
+        location: data.location || data.restaurant_address || "",
+      }
     }
   };
 }

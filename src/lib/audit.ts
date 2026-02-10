@@ -29,12 +29,13 @@ const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
 
 const AUDIT_LOG_PREFIX = "audit_log:";
 
-export async function createAuditLog(intent: string): Promise<AuditLog> {
+export async function createAuditLog(intent: string, plan?: Plan): Promise<AuditLog> {
   const id = Math.random().toString(36).substring(7);
   const log: AuditLog = {
     id,
     timestamp: new Date().toISOString(),
     intent,
+    plan,
     steps: [],
   };
 

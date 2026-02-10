@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { inferIntent } from "@/lib/intent";
+import { generatePlan } from "@/lib/llm";
+import { createAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "edge";
@@ -25,14 +27,27 @@ export async function POST(req: NextRequest) {
     try {
       const { intent, rawResponse } = await inferIntent(text);
       
+      let plan = null;
+      let auditLogId = null;
+
+      if (intent.type === "PLANNING" || intent.confidence > 0.7) {
+        plan = await generatePlan(text);
+        const auditLog = await createAuditLog(text, plan);
+        auditLogId = auditLog.id;
+      }
+      
       // Phase 3: Debuggability & Inspection
       console.log("[Intent Engine] Input:", text);
       console.log("[Intent Engine] Inferred Intent:", JSON.stringify(intent, null, 2));
-      console.log("[Intent Engine] Raw LLM Output:", rawResponse);
+      if (plan) {
+        console.log("[Intent Engine] Generated Plan:", JSON.stringify(plan, null, 2));
+      }
 
       return NextResponse.json({
         success: true,
         intent,
+        plan,
+        audit_log_id: auditLogId,
         // Phase 3: Raw model output is accessible
         _debug: {
           timestamp: new Date().toISOString(),

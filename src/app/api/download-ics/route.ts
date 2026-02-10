@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { parseNaturalLanguageDate } from '@/lib/date-utils';
 
 const DownloadIcsSchema = z.object({
   title: z.string().default('Event'),
@@ -13,34 +14,6 @@ function formatICalDate(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
-function parseDateTime(dt: string): Date {
-  const d = new Date(dt);
-  if (!isNaN(d.getTime())) return d;
-  
-  // Basic "tomorrow" handling
-  if (dt.toLowerCase().includes("tomorrow")) {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(now.getDate() + 1);
-    
-    // Try to extract time like "7pm" or "19:00"
-    const timeMatch = dt.match(/(\d+)(?::(\d+))?\s*(am|pm)?/i);
-    if (timeMatch) {
-      let hours = parseInt(timeMatch[1]);
-      const minutes = parseInt(timeMatch[2] || "0");
-      const ampm = (timeMatch[3] || "").toLowerCase();
-      
-      if (ampm === "pm" && hours < 12) hours += 12;
-      if (ampm === "am" && hours === 12) hours = 0;
-      
-      tomorrow.setHours(hours, minutes, 0, 0);
-      return tomorrow;
-    }
-    return tomorrow;
-  }
-  return d;
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const params = Object.fromEntries(searchParams.entries());
@@ -52,8 +25,8 @@ export async function GET(req: NextRequest) {
 
   const { title, start: startStr, end: endStr, location, description } = validatedParams.data;
 
-  const startDate = parseDateTime(startStr);
-  let endDate = endStr ? parseDateTime(endStr) : new Date(startDate.getTime() + 60 * 60 * 1000);
+  const startDate = await parseNaturalLanguageDate(startStr);
+  let endDate = endStr ? await parseNaturalLanguageDate(endStr) : new Date(startDate.getTime() + 60 * 60 * 1000);
 
   // If endDate is invalid or before startDate, make it 1 hour after startDate
   if (isNaN(endDate.getTime()) || endDate <= startDate) {

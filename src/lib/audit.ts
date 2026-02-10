@@ -28,6 +28,7 @@ export interface AuditLog {
     error?: string;
     confirmed_by_user?: boolean;
     timestamp: string;
+    latency?: number;
   }>;
   final_outcome?: string;
 }
@@ -56,6 +57,10 @@ export async function createAuditLog(
     plan,
     userLocation,
     steps: [],
+    toolExecutionLatencies: {
+      latencies: {},
+      totalToolExecutionTime: 0
+    }
   };
 
   if (redis) {

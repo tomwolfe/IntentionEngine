@@ -315,34 +315,108 @@ export async function executeTool(
     throw new Error(`Tool ${tool_name} not found`);
   }
 
-  const result = await toolDef.execute(parameters);
+  const startTime = Date.now();
+  let result: any;
+  let attempts = 0;
+  const maxRetries = 3;
 
-  if (result.success === false && context) {
-    console.log(`Tool ${tool_name} returned success: false, triggering re-plan...`);
+  while (attempts < maxRetries) {
+    try {
+      result = await toolDef.execute(parameters);
+      
+      // Technical vs Logical error detection
+      const technicalErrorKeywords = ["429", "network", "timeout", "fetch", "socket", "hang up", "overpass api error"];
+      const isTechnicalError = !result.success && result.error && technicalErrorKeywords.some(k => result.error.toLowerCase().includes(k));
+
+      if (isTechnicalError && attempts < maxRetries - 1) {
+        throw new Error(result.error); // Trigger retry
+      }
+      
+      break; 
+    } catch (error: any) {
+      attempts++;
+      const errorMessage = error.message?.toLowerCase() || "";
+      const isRetryable = errorMessage.includes('429') || 
+                          errorMessage.includes('network') || 
+                          errorMessage.includes('timeout') || 
+                          errorMessage.includes('fetch') ||
+                          errorMessage.includes('overpass api error');
+      
+      if (isRetryable && attempts < maxRetries) {
+        const delay = Math.pow(2, attempts) * 1000;
+        console.warn(`Technical error in ${tool_name}, retrying in ${delay}ms... (Attempt ${attempts}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      result = { success: false, error: error.message || "Unknown error" };
+      break;
+    }
+  }
+
+  const duration = Date.now() - startTime;
+
+  if (context) {
     const { getAuditLog, updateAuditLog } = await import("./audit");
-    const { replan } = await import("./llm");
-
     const log = await getAuditLog(context.audit_log_id);
-    if (log && log.plan) {
-      try {
-        const errorExplanation = `Step ${context.step_index} (${tool_name}) failed: ${result.error || "Unknown error"}`;
-        console.log(`Re-planning with explanation: ${errorExplanation}`);
-        
-        const newPlan = await replan(log.intent, log, context.step_index, result.error || "Tool returned failure");
-        
-        await updateAuditLog(context.audit_log_id, {
-          plan: newPlan,
-          final_outcome: `Re-planned due to failure in ${tool_name}. ${errorExplanation}`
-        });
+    if (log) {
+      const toolExecutionLatencies = log.toolExecutionLatencies || { latencies: {}, totalToolExecutionTime: 0 };
+      const latencies = toolExecutionLatencies.latencies[tool_name] || [];
+      latencies.push(duration);
+      toolExecutionLatencies.latencies[tool_name] = latencies;
+      toolExecutionLatencies.totalToolExecutionTime = (toolExecutionLatencies.totalToolExecutionTime || 0) + duration;
 
-        return {
-          ...result,
-          replanned: true,
-          new_plan: newPlan,
-          error_explanation: errorExplanation
-        };
-      } catch (replanError: any) {
-        console.error("Re-planning failed after tool failure:", replanError);
+      const newStep = {
+        step_index: context.step_index,
+        tool_name,
+        status: (result.success ? "executed" : "failed") as any,
+        input: parameters,
+        output: result.result,
+        error: result.error,
+        timestamp: new Date().toISOString(),
+        latency: duration // Added latency to step
+      };
+
+      const updatedSteps = [...log.steps, newStep];
+
+      await updateAuditLog(context.audit_log_id, { 
+        toolExecutionLatencies,
+        steps: updatedSteps
+      });
+
+      if (result.success === false) {
+        console.log(`Tool ${tool_name} returned success: false, triggering re-plan...`);
+        const { replan } = await import("./llm");
+
+        if (log.plan) {
+          try {
+            const errorExplanation = `Step ${context.step_index} (${tool_name}) failed: ${result.error || "Unknown error"}`;
+            console.log(`Re-planning with explanation: ${errorExplanation}`);
+            
+            // Step 1: Pass entire context (parameters + result)
+            const newPlan = await replan(
+              log.intent, 
+              { ...log, steps: updatedSteps }, 
+              context.step_index, 
+              result.error || "Tool returned failure",
+              { parameters, result }
+            );
+            
+            await updateAuditLog(context.audit_log_id, {
+              plan: newPlan,
+              final_outcome: `Re-planned due to failure in ${tool_name}. ${errorExplanation}`
+            });
+
+            return {
+              ...result,
+              replanned: true,
+              new_plan: newPlan,
+              error_explanation: errorExplanation
+            };
+          } catch (replanError: any) {
+            console.error("Re-planning failed after tool failure:", replanError);
+          }
+        }
       }
     }
   }

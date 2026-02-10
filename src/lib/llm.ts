@@ -118,7 +118,13 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
   return PlanSchema.parse(planJson);
 }
 
-export async function replan(originalIntent: string, auditLog: any, failedStepIndex: number, error: string): Promise<Plan> {
+export async function replan(
+  originalIntent: string, 
+  auditLog: any, 
+  failedStepIndex: number, 
+  error: string,
+  failedStepContext?: { parameters: any; result: any }
+): Promise<Plan> {
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
@@ -131,6 +137,10 @@ export async function replan(originalIntent: string, auditLog: any, failedStepIn
   const executionHistory = auditLog.steps.map((s: any) => {
     return `Step ${s.step_index}: ${s.tool_name} -> ${s.status}${s.error ? ` (Error: ${s.error})` : ''}`;
   }).join('\n');
+
+  const contextSnippet = failedStepContext 
+    ? `\nFailed Step Context:\nParameters: ${JSON.stringify(failedStepContext.parameters)}\nResult/Output: ${JSON.stringify(failedStepContext.result)}`
+    : "";
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -146,6 +156,7 @@ export async function replan(originalIntent: string, auditLog: any, failedStepIn
           content: `You are an Intention Engine in Re-planning mode.
           A previous plan failed at step ${failedStepIndex}.
           Specific Error: ${error}
+          ${contextSnippet}
           
           Original Intent: ${originalIntent}
           

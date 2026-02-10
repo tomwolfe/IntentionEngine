@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       try {
         [userPreferences, recentLogs] = await Promise.all([
           redis.get(userPrefsKey),
-          getUserAuditLogs(userIp, 5)
+          getUserAuditLogs(userIp, 10)
         ]);
       } catch (err) {
         console.warn("Failed to retrieve user data from Redis:", err);
@@ -82,6 +82,30 @@ export async function POST(req: Request) {
         .map(part => (part as any).text)
         .join("\n");
     }
+
+    // Step 2: Semantic Memory & Proactive Retrieval
+    function getRelevantFailures(text: string, logs: any[]) {
+      const keywords = text.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+      const failures: string[] = [];
+      for (const log of logs) {
+        if (log.steps) {
+          for (const step of log.steps) {
+            if (step.status === "failed") {
+              const stepContext = `${step.tool_name} ${step.error} ${JSON.stringify(step.input)}`.toLowerCase();
+              if (keywords.some(k => stepContext.includes(k))) {
+                failures.push(`Warning: A previous "${step.tool_name}" failed. Error: "${step.error}". Previous Params: ${JSON.stringify(step.input)}`);
+              }
+            }
+          }
+        }
+      }
+      return Array.from(new Set(failures)).slice(0, 3);
+    }
+
+    const relevantFailures = getRelevantFailures(userText, recentLogs);
+    const failureWarnings = relevantFailures.length > 0
+      ? `\nPROACTIVE WARNINGS (Avoid these previous mistakes):\n${relevantFailures.join('\n')}`
+      : "";
 
     let intent;
     let intentInferenceLatency = 0;
@@ -127,6 +151,8 @@ export async function POST(req: Request) {
     ${userPreferences ? `User Preferences: ${JSON.stringify(userPreferences)}` : ""}
 
     ${memoryContext}
+
+    ${failureWarnings}
 
     If a tool returns success: false, you MUST acknowledge the error and attempt to REPLAN. 
     Explain what went wrong and provide a modified plan or alternative action to the user.

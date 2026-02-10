@@ -2,6 +2,8 @@ import { RestaurantResultSchema } from "./schema";
 import { Redis } from "@upstash/redis";
 import { env } from "./config";
 import { z } from "zod";
+import { jsonSchema, type FlexibleSchema } from "ai";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -178,7 +180,7 @@ export async function add_calendar_event(params: z.infer<typeof AddCalendarEvent
 export interface ToolDefinition {
   name: string;
   description: string;
-  parameters: z.ZodType<any>;
+  parameters: FlexibleSchema<any>;
   execute: (params: any) => Promise<any>;
 }
 
@@ -199,11 +201,51 @@ export class Registry {
     this.tools.set(tool.name, tool);
   }
 
-  public async registerDynamic(openApiUrl: string) {
-    // Placeholder for Pillar 3.2: Dynamic registration logic
-    console.log(`Dynamic registration from ${openApiUrl} requested.`);
-    // In a real implementation, we would fetch the OpenAPI spec, 
-    // parse it, and generate ToolDefinitions.
+  /**
+   * Pillar 3.2: Zod-OpenAPI Bridge
+   * Dynamically registers tools from an OpenAPI specification.
+   */
+  public async registerFromOpenApi(options: {
+    baseUrl: string;
+    specUrl: string;
+    headers?: Record<string, string>;
+  }) {
+    const { baseUrl, specUrl, headers } = options;
+    
+    try {
+      const response = await fetch(specUrl, { headers });
+      const spec = await response.json();
+
+      if (!spec.paths) throw new Error("Invalid OpenAPI spec: missing paths");
+
+      for (const [path, methods] of Object.entries(spec.paths as any)) {
+        for (const [method, operation] of Object.entries(methods as any)) {
+          const op = operation as any;
+          const toolName = op.operationId || `${method}_${path.replace(/\//g, '_')}`;
+          
+          // Basic parameter mapping (simplification for prototype)
+          const parameters = op.requestBody?.content?.['application/json']?.schema || { type: 'object', properties: {} };
+
+          this.register({
+            name: toolName,
+            description: op.description || op.summary || `Execute ${method} on ${path}`,
+            parameters: jsonSchema(parameters),
+            execute: async (params) => {
+              const url = new URL(path, baseUrl).toString();
+              const res = await fetch(url, {
+                method: method.toUpperCase(),
+                headers: { 'Content-Type': 'application/json', ...headers },
+                body: JSON.stringify(params)
+              });
+              if (!res.ok) return { success: false, error: await res.text() };
+              return { success: true, result: await res.json() };
+            }
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`Failed to register tools from OpenAPI: ${error.message}`);
+    }
   }
 
   public getTool(name: string): ToolDefinition | undefined {
@@ -212,6 +254,20 @@ export class Registry {
 
   public getAllTools(): ToolDefinition[] {
     return Array.from(this.tools.values());
+  }
+
+  /**
+   * Helper to convert Zod schemas to JSON Schema for external interoperability.
+   */
+  public getJsonSchema(toolName: string) {
+    const tool = this.getTool(toolName);
+    if (!tool) return null;
+    // If it's already a JSON schema wrap, return it
+    if ('jsonSchema' in tool.parameters) {
+        return (tool.parameters as any).jsonSchema;
+    }
+    // If it's a Zod schema, convert it
+    return zodToJsonSchema(tool.parameters as any);
   }
 }
 

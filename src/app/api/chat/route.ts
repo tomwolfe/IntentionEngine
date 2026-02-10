@@ -1,5 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
-import { streamText, tool, convertToModelMessages } from "ai";
+import { streamText, tool, convertToModelMessages, stepCountIs } from "ai";
 import { z } from "zod";
 import { registry, geocode_location } from "@/lib/tools";
 import { env } from "@/lib/config";
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
       messages: coreMessages,
       system: systemPrompt,
       tools: enabledTools,
-      maxSteps: 5,
+      stopWhen: stepCountIs(5),
       onFinish: async (event) => {
         const totalLatency = Date.now() - startTime;
         const currentLog = await getAuditLog(auditLog.id);

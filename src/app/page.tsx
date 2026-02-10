@@ -534,8 +534,15 @@ export default function Home() {
       
       // Get time from first calendar event for display
       const firstCalendarPart = allCalendarParts[0] || calendarPart;
-      const startTime = (firstCalendarPart as any)?.input?.start_time;
-      const formattedTime = startTime ? new Date(startTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+      const startTime = (firstCalendarPart as any)?.output?.result?.start_iso || (firstCalendarPart as any)?.input?.start_time;
+      
+      let formattedTime = null;
+      if (startTime) {
+        const date = new Date(startTime);
+        if (!isNaN(date.getTime())) {
+          formattedTime = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+      }
       
       if (allCalendarParts.length >= 2) {
         // Generate fused ICS URL with multiple events
@@ -593,8 +600,14 @@ export default function Home() {
                       // Intent Fusion: Unified card for multiple events
                       <div className="mb-10">
                         {allCalendarParts.map((part: any, index: number) => {
-                          const eventStart = part.input?.start_time;
-                          const eventTime = eventStart ? new Date(eventStart).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+                          const eventStart = part.output?.result?.start_iso || part.input?.start_time;
+                          let eventTime = null;
+                          if (eventStart) {
+                            const date = new Date(eventStart);
+                            if (!isNaN(date.getTime())) {
+                              eventTime = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                            }
+                          }
                           const isMainEvent = index === 0;
                           
                           return (

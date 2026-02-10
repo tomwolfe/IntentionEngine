@@ -353,6 +353,9 @@ export async function add_calendar_event(params: any) {
 
       console.log(`Adding calendar event: ${title} from ${start_time} to ${end_time}...`);
       
+      const parsedStart = chrono.parseDate(start_time) || new Date(start_time);
+      const parsedEnd = end_time ? (chrono.parseDate(end_time) || new Date(end_time)) : new Date(parsedStart.getTime() + 2 * 60 * 60 * 1000);
+
       let description = providedDescription || "";
       if (restaurant_name || restaurant_address) {
         const restInfo = `Restaurant: ${restaurant_name || 'N/A'}\nAddress: ${restaurant_address || 'N/A'}`;
@@ -366,8 +369,8 @@ export async function add_calendar_event(params: any) {
 
       const queryParams = new URLSearchParams({
         title,
-        start: start_time,
-        end: end_time,
+        start: parsedStart.toISOString(),
+        end: parsedEnd.toISOString(),
         location: location || restaurant_address || "",
         description
       });
@@ -376,6 +379,8 @@ export async function add_calendar_event(params: any) {
         success: true,
         result: {
           status: "ready",
+          start_iso: parsedStart.toISOString(),
+          end_iso: parsedEnd.toISOString(),
           download_url: `/api/download-ics?${queryParams.toString()}`
         }
       };

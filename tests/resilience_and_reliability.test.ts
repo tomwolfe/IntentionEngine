@@ -214,7 +214,7 @@ describe('Scenario 5: Resilience & Reliability', () => {
 
        const res = await search_restaurant({ location: "Paris", cuisine: "Italian" });
        expect(res.success).toBe(true);
-       expect(res.result[0].name).toBe("Test Resto");
+       expect(res.result![0].name).toBe("Test Resto");
     }, 30000);
 
   });

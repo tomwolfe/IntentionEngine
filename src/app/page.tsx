@@ -581,146 +581,144 @@ export default function Home() {
         }
       };
 
-      return (
-        <div className="space-y-4 pt-4">
-          {/* Generic results like weather or directions */}
-          {genericParts.map((p, i) => (
-            <GenericOutcomeCard key={i} result={(p as any).output} toolName={getToolName(p)} />
-          ))}
-
-          {(isComplete || isSimplified || isFailed) && (
-            <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
-              {allCalendarParts.length >= 2 ? (
-              // Intent Fusion: Unified card for multiple events
-              <div className="mb-10">
-                {allCalendarParts.map((part: any, index: number) => {
-                  const eventStart = part.input?.start_time;
-                  const eventTime = eventStart ? new Date(eventStart).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
-                  const isMainEvent = index === 0;
-                  
-                  return (
-                    <div key={index}>
-                      <div className={isMainEvent ? "mb-8" : "mt-8"}>
-                        <h3 className={`font-bold tracking-tight mb-3 ${isMainEvent ? 'text-4xl text-slate-900' : 'text-2xl text-slate-700'}`}>
-                          {part.input?.title || 'Event'}
-                        </h3>
+              return (
+                <div className="space-y-4 pt-4">
+                  {/* Generic results like weather or directions */}
+                              {genericParts.map((p, i) => (
+                                <GenericOutcomeCard key={i} result={(p as any).output} toolName={getToolName(p as any)} />
+                              ))}      
+                  {(isComplete || isSimplified || isFailed) && (
+                    <div className="p-10 border border-slate-100 rounded-[3rem] bg-white shadow-[0_40px_80px_rgba(0,0,0,0.03)] animate-in zoom-in-95 duration-700">
+                      {allCalendarParts.length >= 2 ? (
+                      // Intent Fusion: Unified card for multiple events
+                      <div className="mb-10">
+                        {allCalendarParts.map((part: any, index: number) => {
+                          const eventStart = part.input?.start_time;
+                          const eventTime = eventStart ? new Date(eventStart).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
+                          const isMainEvent = index === 0;
+                          
+                          return (
+                            <div key={index}>
+                              <div className={isMainEvent ? "mb-8" : "mt-8"}>
+                                <h3 className={`font-bold tracking-tight mb-3 ${isMainEvent ? 'text-4xl text-slate-900' : 'text-2xl text-slate-700'}`}>
+                                  {part.input?.title || 'Event'}
+                                </h3>
+                                <div className="flex flex-col gap-2">
+                                  <p className="text-slate-400 text-xl font-light">{part.input?.location || part.input?.restaurant_address || 'Location TBD'}</p>
+                                  {eventTime && (
+                                    <p className={`font-semibold mt-2 ${isMainEvent ? 'text-2xl text-slate-900' : 'text-xl text-slate-600'}`}>
+                                      {eventTime}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              {index === 0 && allCalendarParts.length > 1 && (
+                                <div className="h-px bg-slate-100 w-full my-8" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      // Standard single event card (possibly fused with event)
+                      <div className="mb-10">
+                        <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
                         <div className="flex flex-col gap-2">
-                          <p className="text-slate-400 text-xl font-light">{part.input?.location || part.input?.restaurant_address || 'Location TBD'}</p>
-                          {eventTime && (
-                            <p className={`font-semibold mt-2 ${isMainEvent ? 'text-2xl text-slate-900' : 'text-xl text-slate-600'}`}>
-                              {eventTime}
-                            </p>
+                          <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
+                          {formattedTime && (
+                            <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
                           )}
                         </div>
+      
+                        {event && (
+                          <>
+                            <div className="h-px bg-slate-100 w-full my-8" />
+                            <h4 className="text-2xl font-bold text-slate-700 mb-2">{event.name}</h4>
+                            <p className="text-slate-400 text-xl font-light">{event.location}</p>
+                          </>
+                        )}
                       </div>
-                      {index === 0 && allCalendarParts.length > 1 && (
-                        <div className="h-px bg-slate-100 w-full my-8" />
-                      )}
+                    )}
+      
+                    {restaurant.suggested_wine && !isFused && (
+                      <div className="bg-amber-50/30 p-8 rounded-3xl border border-amber-100/50 mb-10 relative overflow-hidden group">
+                        <div className="absolute top-0 left-0 w-1 h-full bg-amber-400/50" />
+                        <p className="text-2xl text-amber-900/80 font-serif italic leading-relaxed">
+                          "Pair with {restaurant.suggested_wine} to elevate the evening."
+                        </p>
+                      </div>
+                    )}
+      
+                    {downloadUrl && (
+                      <div className="space-y-6">
+                        <div className="h-px bg-slate-100 w-full" />
+                        <a 
+                          href={downloadUrl}
+                          onClick={handleIcsClick}
+                          className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
+                        >
+                          <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
+                          Finalize & Download (.ics)
+                        </a>
+                        <p className="text-center text-slate-400 text-sm font-medium tracking-wide uppercase">The Final Act of Will</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+      
+                {hasChainFailure && (
+                  <div className="mt-10 p-8 border border-amber-100 bg-amber-50/30 rounded-[2.5rem] flex flex-col items-center text-center">
+                    <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mb-4">
+                      <AlertCircle size={24} />
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              // Standard single event card (possibly fused with event)
-              <div className="mb-10">
-                <h3 className="text-4xl font-bold text-slate-900 tracking-tight mb-3">{restaurant.name}</h3>
-                <div className="flex flex-col gap-2">
-                  <p className="text-slate-400 text-xl font-light">{restaurant.address}</p>
-                  {formattedTime && (
-                    <p className="text-slate-900 text-2xl font-semibold mt-2">{formattedTime}</p>
-                  )}
-                </div>
-
-                {event && (
-                  <>
-                    <div className="h-px bg-slate-100 w-full my-8" />
-                    <h4 className="text-2xl font-bold text-slate-700 mb-2">{event.name}</h4>
-                    <p className="text-slate-400 text-xl font-light">{event.location}</p>
-                  </>
+                    <p className="text-amber-900 text-lg font-medium mb-6">
+                      We encountered a minor issue while preparing your plans. Please review the details below.
+                    </p>
+                    <button 
+                      onClick={() => setShowFailureDetails(true)}
+                      className="px-8 py-3 bg-amber-200/50 hover:bg-amber-200 text-amber-800 rounded-full text-sm font-bold transition-all active:scale-95"
+                    >
+                      View Details
+                    </button>
+                  </div>
+                )}
+                
+                {/* Contextual Completion Whisper */}
+                {whisperData.show && (
+                  <div className="mt-6 pt-6 border-t border-slate-100">
+                    <p className="text-slate-500 text-sm italic mb-3">
+                      Would you like me to find a nearby wine shop for a bottle to bring?
+                    </p>
+                    <button
+                      onClick={handleWhisperYes}
+                      className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors"
+                    >
+                      Yes
+                    </button>
+                  </div>
+                )}
+                
+                {/* Wine Shop Result */}
+                {whisperData.wineShopResult && (
+                  <div className="mt-6 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                    <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">Suggested Wine Shop</p>
+                    <h4 className="text-lg font-semibold text-slate-800">{whisperData.wineShopResult.name}</h4>
+                    <p className="text-slate-500 text-sm">{whisperData.wineShopResult.location}</p>
+                    {whisperData.wineShopResult.url && (
+                      <a 
+                        href={whisperData.wineShopResult.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 text-sm mt-2 inline-block hover:underline"
+                      >
+                        View Details
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-
-            {restaurant.suggested_wine && !isFused && (
-              <div className="bg-amber-50/30 p-8 rounded-3xl border border-amber-100/50 mb-10 relative overflow-hidden group">
-                <div className="absolute top-0 left-0 w-1 h-full bg-amber-400/50" />
-                <p className="text-2xl text-amber-900/80 font-serif italic leading-relaxed">
-                  "Pair with {restaurant.suggested_wine} to elevate the evening."
-                </p>
-              </div>
-            )}
-
-            {downloadUrl && (
-              <div className="space-y-6">
-                <div className="h-px bg-slate-100 w-full" />
-                <a 
-                  href={downloadUrl}
-                  onClick={handleIcsClick}
-                  className="flex items-center justify-center gap-4 w-full py-6 px-8 bg-slate-900 text-white rounded-[2rem] font-bold text-xl hover:bg-black transition-all active:scale-[0.98] shadow-2xl shadow-slate-300 group hover:shadow-black/10"
-                >
-                  <Calendar size={28} className="group-hover:rotate-6 transition-transform" />
-                  Finalize & Download (.ics)
-                </a>
-                <p className="text-center text-slate-400 text-sm font-medium tracking-wide uppercase">The Final Act of Will</p>
-              </div>
-            )}
-
-            {hasChainFailure && (
-              <div className="mt-10 p-8 border border-amber-100 bg-amber-50/30 rounded-[2.5rem] flex flex-col items-center text-center">
-                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mb-4">
-                  <AlertCircle size={24} />
-                </div>
-                <p className="text-amber-900 text-lg font-medium mb-6">
-                  We encountered a minor issue while preparing your plans. Please review the details below.
-                </p>
-                <button 
-                  onClick={() => setShowFailureDetails(true)}
-                  className="px-8 py-3 bg-amber-200/50 hover:bg-amber-200 text-amber-800 rounded-full text-sm font-bold transition-all active:scale-95"
-                >
-                  View Details
-                </button>
-              </div>
-            )}
-            
-            {/* Contextual Completion Whisper */}
-            {whisperData.show && (
-              <div className="mt-6 pt-6 border-t border-slate-100">
-                <p className="text-slate-500 text-sm italic mb-3">
-                  Would you like me to find a nearby wine shop for a bottle to bring?
-                </p>
-                <button
-                  onClick={handleWhisperYes}
-                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full transition-colors"
-                >
-                  Yes
-                </button>
-              </div>
-            )}
-            
-            {/* Wine Shop Result */}
-            {whisperData.wineShopResult && (
-              <div className="mt-6 p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">Suggested Wine Shop</p>
-                <h4 className="text-lg font-semibold text-slate-800">{whisperData.wineShopResult.name}</h4>
-                <p className="text-slate-500 text-sm">{whisperData.wineShopResult.location}</p>
-                {whisperData.wineShopResult.url && (
-                  <a 
-                    href={whisperData.wineShopResult.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 text-sm mt-2 inline-block hover:underline"
-                  >
-                    View Details
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Default "Thinking" state for any non-final state - Now silent and subtle
+            );
+          }    // Default "Thinking" state for any non-final state - Now silent and subtle
     return (
       <div className="flex flex-col justify-center items-center py-24">
         <div className="w-1.5 h-1.5 bg-slate-200 rounded-full animate-pulse" />

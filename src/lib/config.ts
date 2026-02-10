@@ -7,16 +7,16 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  SENTRY_DSN: z.string().url().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);
 
 if (!_env.success) {
-  console.warn("⚠️ Some environment variables are missing or invalid:", _env.error.format());
+  const errors = _env.error.format();
+  console.error("❌ Invalid environment variables:", JSON.stringify(errors, null, 2));
   if (process.env.NODE_ENV === "production") {
-    // Only throw in production if we are not in a build environment
-    // or if we really need them to start. For Next.js build, we often don't have secrets.
-    // We'll just export whatever we have and let the usage fail if needed.
+    throw new Error("Critical environment variables are missing or invalid");
   }
 }
 

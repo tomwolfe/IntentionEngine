@@ -173,9 +173,14 @@ export async function search_restaurant(params: z.infer<typeof SearchRestaurantS
         el.tags["addr:city"]
       ].filter(Boolean).join(" ") || "Address not available";
 
+      const elCuisine = el.tags?.cuisine 
+        ? el.tags.cuisine.split(';').map((c: string) => c.trim())
+        : [];
+
       const rawResult = {
         name,
         address: addr,
+        cuisine: elCuisine,
         coordinates: {
           lat: parseFloat(el.lat || el.center?.lat),
           lon: parseFloat(el.lon || el.center?.lon)

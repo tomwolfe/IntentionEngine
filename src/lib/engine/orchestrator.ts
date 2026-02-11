@@ -259,11 +259,12 @@ async function executeStep(
           attempts: (getStepState(state, step.id)?.attempts || 0) + 1,
         };
       } else {
+        const isValidationError = toolResult.error?.toLowerCase().includes("invalid parameters");
         return {
           step_id: step.id,
           status: "failed",
           error: {
-            code: "TOOL_EXECUTION_FAILED",
+            code: isValidationError ? "PARAMETER_VALIDATION_FAILED" : "TOOL_EXECUTION_FAILED",
             message: toolResult.error || "Unknown tool execution error",
           },
           completed_at: new Date().toISOString(),

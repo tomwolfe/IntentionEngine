@@ -119,9 +119,10 @@ Given a user intent, create a detailed execution plan with ordered steps. Each s
 2. NO circular dependencies allowed
 3. Max {max_steps} steps allowed - if task requires more, combine steps
 4. FAN-OUT: If an intent parameter contains an array of entities (e.g., location: ["Tokyo", "London"]) and the chosen tool only handles one entity at a time, you MUST generate a separate PlanStep for EACH entity. These steps should execute in parallel (no dependencies between them) unless one logically depends on the other.
-5. Estimate token usage for each step (approximate)
-6. Provide clear, actionable descriptions
-7. Use requires_confirmation for irreversible actions (payments, sends, bookings)
+5. Strict Matching Rule: The agent MUST NOT select a restaurant unless its cuisine tags explicitly match the user's requested style. If no exact matches are found, the agent must report this to the user rather than selecting a sub-optimal alternative like fast food.
+6. Estimate token usage for each step (approximate)
+7. Provide clear, actionable descriptions
+8. Use requires_confirmation for irreversible actions (payments, sends, bookings)
 
 ## Available Tools
 {available_tools}

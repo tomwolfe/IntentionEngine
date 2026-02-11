@@ -1,196 +1,528 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuditLog, updateAuditLog } from "@/lib/audit";
-import { executeToolWithContext } from "@/app/actions";
-import { replan } from "@/lib/planner";
-import { z } from "zod";
+/**
+ * IntentionEngine - API Layer
+ * Phase 9: HTTP API for execution orchestration
+ *
+ * Flow:
+ * 1. Create executionId
+ * 2. Transition to RECEIVED
+ * 3. Parse intent
+ * 4. If needed, generate plan
+ * 5. Execute
+ * 6. Update memory
+ * 7. Return structured result + trace
+ *
+ * Constraints:
+ * - No business logic in route
+ * - Only orchestration
+ * - Route thin
+ * - All logic in engine
+ * - Trace returned
+ */
 
-export const runtime = "edge";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+
+// Engine imports
+import {
+  ExecutionState,
+  ExecutionStatus,
+  Intent,
+  Plan,
+  ExecutionTrace,
+  EngineErrorSchema,
+} from "@/lib/engine/types";
+import { parseIntent, ParseResult } from "@/lib/engine/intent";
+import { generatePlan, PlannerResult } from "@/lib/engine/planner";
+import {
+  executePlan,
+  ExecutionResult,
+  ToolExecutor,
+} from "@/lib/engine/executor";
+import {
+  createInitialState,
+  transitionState,
+  applyStateUpdate,
+  setIntent,
+  setPlan,
+} from "@/lib/engine/state-machine";
+import { saveExecutionState, loadExecutionState } from "@/lib/engine/memory";
+import {
+  ExecutionTracer,
+  createTracer,
+  TracerResult,
+} from "@/lib/engine/tracing";
+import {
+  getToolRegistry,
+  ToolFunction,
+  ToolExecutionContext,
+} from "@/lib/engine/tools/registry";
+
+// ============================================================================
+// REQUEST/RESPONSE SCHEMAS
+// Validation schemas for API
+// ============================================================================
 
 const ExecuteRequestSchema = z.object({
-  audit_log_id: z.string().min(1),
-  step_index: z.number().min(0),
-  user_confirmed: z.boolean().optional().default(false),
+  input: z.string().min(1).max(10000),
+  context: z
+    .object({
+      execution_id: z.string().optional(),
+      user_context: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
+  options: z
+    .object({
+      skip_planning: z.boolean().optional(),
+      require_confirmation: z.boolean().optional(),
+    })
+    .optional(),
 });
 
-function getDeepPath(obj: any, path: string) {
-  const parts = path.split(".");
-  let current = obj;
-  for (const part of parts) {
-    if (part.includes("[") && part.includes("]")) {
-      const arrayPart = part.match(/(.+)\[(\d+)\]/);
-      if (arrayPart) {
-        const arrayName = arrayPart[1];
-        const index = parseInt(arrayPart[2]);
-        current = arrayName ? current[arrayName][index] : current[index];
-      } else {
-        // Case like [0] without array name
-        const indexMatch = part.match(/\[(\d+)\]/);
-        if (indexMatch) {
-          current = current[parseInt(indexMatch[1])];
-        }
-      }
-    } else {
-      current = current[part];
-    }
-    if (current === undefined) throw new Error(`Path ${path} not found in object`);
-  }
-  return current;
+const ExecuteResponseSchema = z.object({
+  success: z.boolean(),
+  execution_id: z.string(),
+  status: z.string(),
+  intent: z.unknown().optional(),
+  plan: z.unknown().optional(),
+  result: z.unknown().optional(),
+  error: z
+    .object({
+      code: z.string(),
+      message: z.string(),
+    })
+    .optional(),
+  trace: z.unknown(),
+  metadata: z.object({
+    duration_ms: z.number(),
+    total_tokens: z.number(),
+    step_count: z.number().optional(),
+  }),
+});
+
+// ============================================================================
+// CREATE TOOL EXECUTOR
+// Factory for tool executor using the registry
+// ============================================================================
+
+function createToolExecutorForExecution(
+  executionId: string
+): ToolExecutor {
+  const registry = getToolRegistry();
+
+  return {
+    execute: async (
+      toolName: string,
+      parameters: Record<string, unknown>,
+      timeoutMs: number
+    ) => {
+      const result = await registry.execute(
+        toolName,
+        parameters,
+        {
+          executionId,
+          stepId: "unknown",
+          timeoutMs,
+          startTime: performance.now(),
+        },
+        undefined // Use latest version
+      );
+
+      return {
+        success: result.success,
+        output: result.output,
+        error: result.error,
+        latency_ms: result.latency_ms,
+      };
+    },
+  };
 }
 
-export async function POST(req: NextRequest) {
+// ============================================================================
+// ORCHESTRATION ENGINE
+// Main execution orchestration (business logic)
+// ============================================================================
+
+interface OrchestrationResult {
+  success: boolean;
+  execution_id: string;
+  status: ExecutionStatus;
+  intent?: Intent;
+  plan?: Plan;
+  execution_result?: ExecutionResult;
+  error?: {
+    code: string;
+    message: string;
+  };
+  trace: ExecutionTrace;
+  metadata: {
+    duration_ms: number;
+    total_tokens: number;
+    step_count?: number;
+  };
+}
+
+async function orchestrateExecution(
+  input: string,
+  context: { execution_id?: string; user_context?: Record<string, unknown> } = {},
+  options: { skip_planning?: boolean; require_confirmation?: boolean } = {}
+): Promise<OrchestrationResult> {
+  const startTime = performance.now();
+  const executionId = context.execution_id || randomUUID();
+
+  // Initialize tracer
+  const tracer = createTracer(executionId);
+  tracer.addSystemEntry("execution_started", { input: input.slice(0, 100) });
+
   try {
-    const rawBody = await req.json();
-    const validatedBody = ExecuteRequestSchema.safeParse(rawBody);
+    // Step 1: Create initial state
+    let state = createInitialState(executionId);
+    tracer.addStateTransitionEntry("none", "RECEIVED", true);
 
-    if (!validatedBody.success) {
-      return NextResponse.json({ error: "Invalid request parameters", details: validatedBody.error.format() }, { status: 400 });
-    }
+    // Persist initial state
+    await saveExecutionState(state);
 
-    const { audit_log_id, step_index, user_confirmed } = validatedBody.data;
-
-    const log = await getAuditLog(audit_log_id);
-    if (!log || !log.plan) {
-      return NextResponse.json({ error: "Audit log or plan not found" }, { status: 404 });
-    }
-
-    const step = log.plan.ordered_steps[step_index];
-    if (!step) {
-      return NextResponse.json({ error: "Step not found" }, { status: 404 });
-    }
-
-    if (step.requires_confirmation && !user_confirmed) {
-      return NextResponse.json({ error: "User confirmation required for this step" }, { status: 403 });
-    }
-
-    // Check if already executed
-    const existingStepLog = log.steps.find(s => s.step_index === step_index);
-    if (existingStepLog && existingStepLog.status === "executed") {
-      return NextResponse.json({ error: "Step already executed" }, { status: 400 });
-    }
-
-    // Resolve parameters if they contain placeholders like {{step_0.result.lat}}
-    const resolveValue = (value: string) => {
-      // Handle the case where the whole value is a single placeholder (returning the raw object/number/etc.)
-      const fullMatch = value.match(/^{{step_(\d+)\.(.+?)}}$/);
-      if (fullMatch) {
-        const prevStepIndex = parseInt(fullMatch[1]);
-        const path = fullMatch[2];
-        const prevStep = log.steps.find(s => s.step_index === prevStepIndex);
-        if (prevStep && prevStep.output) {
-          try {
-            return getDeepPath(prevStep.output, path);
-          } catch (e) {
-            console.warn(`Failed to resolve full placeholder ${value}:`, e);
-            return value;
-          }
-        }
-      }
-
-      // Handle cases where placeholders are embedded in strings
-      return value.replace(/{{step_(\d+)\.(.+?)}}/g, (match, stepIdx, path) => {
-        const prevStepIndex = parseInt(stepIdx);
-        const prevStep = log.steps.find(s => s.step_index === prevStepIndex);
-        if (prevStep && prevStep.output) {
-          try {
-            const resolved = getDeepPath(prevStep.output, path);
-            return typeof resolved === 'object' ? JSON.stringify(resolved) : String(resolved);
-          } catch (e) {
-            console.warn(`Failed to resolve embedded placeholder ${match}:`, e);
-            return match;
-          }
-        }
-        return match;
-      });
-    };
-
-    const resolvedParameters = JSON.parse(JSON.stringify(step.parameters), (key, value) => {
-      if (typeof value === "string" && value.includes("{{step_")) {
-        return resolveValue(value);
-      }
-      return value;
+    // Step 2: Parse intent
+    tracer.addSystemEntry("parsing_intent");
+    const parseResult: ParseResult = await parseIntent(input, {
+      execution_id: executionId,
+      user_context: context.user_context,
     });
 
-    try {
-      const result = await executeToolWithContext(step.tool_name, resolvedParameters, { 
-        audit_log_id, 
-        step_index 
+    // Add intent trace entry
+    tracer.addIntentEntry(
+      input,
+      parseResult.intent,
+      parseResult.latency_ms,
+      parseResult.intent.metadata.model_id || "unknown",
+      {
+        prompt: parseResult.token_usage.prompt_tokens,
+        completion: parseResult.token_usage.completion_tokens,
+      }
+    );
+
+    // Update state with intent
+    state = setIntent(state, parseResult.intent);
+    await saveExecutionState(state);
+
+    // Check if intent requires clarification
+    if (parseResult.intent.requires_clarification) {
+      tracer.addSystemEntry("clarification_required", {
+        prompt: parseResult.intent.clarification_prompt,
       });
-      
-      const stepLog = {
-        step_index,
-        tool_name: step.tool_name,
-        status: ((result.success && !result.replanned) ? "executed" : "failed") as "executed" | "failed",
-        input: resolvedParameters,
-        output: result.result,
-        error: result.success ? undefined : result.error,
-        confirmed_by_user: user_confirmed,
-        timestamp: new Date().toISOString()
+
+      const traceResult = tracer.finalize();
+
+      return {
+        success: false,
+        execution_id: executionId,
+        status: "REJECTED",
+        intent: parseResult.intent,
+        error: {
+          code: "CLARIFICATION_REQUIRED",
+          message:
+            parseResult.intent.clarification_prompt ||
+            "Additional information needed",
+        },
+        trace: traceResult.trace,
+        metadata: {
+          duration_ms: Math.round(performance.now() - startTime),
+          total_tokens: traceResult.totalTokenUsage.totalTokens,
+        },
       };
-
-      const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-      await updateAuditLog(audit_log_id, { steps: updatedSteps });
-
-      // Phase 3: Zero-Touch Recovery
-      // If replanned, we can optionally start executing the new plan immediately
-      // For now, we return the new plan to the client, but the requirement says "immediately trigger execution"
-      // In a real "zero-touch" scenario, we might want to recursively call execute for the first step of the new plan.
-      if (result.replanned && result.new_plan && result.new_plan.ordered_steps.length > 0) {
-        const firstStep = result.new_plan.ordered_steps[0];
-        if (!firstStep.requires_confirmation) {
-          console.log("Zero-Touch Recovery: Automatically executing first step of new plan.");
-          // We can't easily recurse here because of the HTTP response context, 
-          // but we can flag it for the client or handle it in a loop.
-          // However, the instructions say "In the chat route... immediately trigger execution".
-        }
-      }
-
-      // Check if all steps are done (only if not replanned)
-      if (!result.replanned && updatedSteps.length === log.plan.ordered_steps.length) {
-        await updateAuditLog(audit_log_id, { final_outcome: "Success: All steps executed." });
-      }
-
-      return NextResponse.json({ 
-        result: result.result, 
-        audit_log_id,
-        replanned: !!result.replanned,
-        new_plan: result.new_plan,
-        error: result.success ? undefined : result.error
-      });
-    } catch (error: any) {
-      console.error("Execution error, triggering re-plan:", error);
-      
-      const { replan } = await import("@/lib/planner");
-      let newPlan = null;
-      try {
-        newPlan = await replan(log.intent, log, step_index, error.message);
-      } catch (replanError) {
-        console.error("Re-planning also failed:", replanError);
-      }
-
-      const stepLog = {
-        step_index,
-        tool_name: step.tool_name,
-        status: "failed" as const,
-        input: resolvedParameters,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      };
-      const updatedSteps = [...log.steps.filter(s => s.step_index !== step_index), stepLog];
-      
-      await updateAuditLog(audit_log_id, { 
-        steps: updatedSteps, 
-        plan: newPlan || log.plan,
-        replanned_count: (log.replanned_count || 0) + (newPlan ? 1 : 0),
-        final_outcome: newPlan ? "Re-planned due to execution error." : "Failed: Execution error and re-planning failed." 
-      });
-      
-      return NextResponse.json({ 
-        error: error.message, 
-        replanned: !!newPlan,
-        new_plan: newPlan
-      }, { status: 500 });
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+
+    // Step 3: Generate plan (unless skipped)
+    let plan: Plan | undefined;
+    if (!options.skip_planning) {
+      tracer.addSystemEntry("generating_plan");
+      const planResult: PlannerResult = await generatePlan(parseResult.intent, {
+        execution_id: executionId,
+      });
+
+      // Add planning trace entry
+      tracer.addPlanningEntry(
+        { intent_type: parseResult.intent.type },
+        { plan_id: planResult.plan.id, steps: planResult.plan.steps.length },
+        planResult.latency_ms,
+        planResult.trace_entry.model_id || "unknown",
+        {
+          prompt: planResult.token_usage.prompt_tokens,
+          completion: planResult.token_usage.completion_tokens,
+        }
+      );
+
+      plan = planResult.plan;
+      state = setPlan(state, plan);
+      await saveExecutionState(state);
+    }
+
+    // Step 4: Execute plan
+    if (plan) {
+      tracer.addSystemEntry("executing_plan", {
+        step_count: plan.steps.length,
+      });
+
+      const toolExecutor = createToolExecutorForExecution(executionId);
+
+      const executionResult: ExecutionResult = await executePlan(
+        plan,
+        toolExecutor,
+        {
+          executionId,
+          initialState: state,
+          traceCallback: (entry) => {
+            // Forward trace entries to our tracer
+            if (entry.step_id) {
+              tracer.addExecutionEntry(
+                entry.step_id,
+                entry.event as
+                  | "step_started"
+                  | "step_completed"
+                  | "step_failed"
+                  | "step_error",
+                entry.input,
+                entry.output,
+                entry.error as string,
+                entry.latency_ms
+              );
+            }
+          },
+          persistState: true,
+        }
+      );
+
+      // Add completion trace entry
+      tracer.addSystemEntry("execution_completed", {
+        success: executionResult.success,
+        completed_steps: executionResult.completed_steps,
+        failed_steps: executionResult.failed_steps,
+      });
+
+      // Finalize trace
+      const traceResult = tracer.finalize();
+
+      return {
+        success: executionResult.success,
+        execution_id: executionId,
+        status: executionResult.state.status,
+        intent: parseResult.intent,
+        plan,
+        execution_result: executionResult,
+        error: executionResult.error,
+        trace: traceResult.trace,
+        metadata: {
+          duration_ms: Math.round(performance.now() - startTime),
+          total_tokens: traceResult.totalTokenUsage.totalTokens,
+          step_count: plan.steps.length,
+        },
+      };
+    } else {
+      // No plan to execute (planning skipped or no plan generated)
+      const traceResult = tracer.finalize();
+
+      return {
+        success: true,
+        execution_id: executionId,
+        status: "PLANNED",
+        intent: parseResult.intent,
+        plan,
+        trace: traceResult.trace,
+        metadata: {
+          duration_ms: Math.round(performance.now() - startTime),
+          total_tokens: traceResult.totalTokenUsage.totalTokens,
+        },
+      };
+    }
+  } catch (error) {
+    // Handle orchestration errors
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    const errorCode =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "ORCHESTRATION_ERROR";
+
+    tracer.addErrorEntry("system", errorCode, errorMessage);
+    const traceResult = tracer.finalize();
+
+    return {
+      success: false,
+      execution_id: executionId,
+      status: "FAILED",
+      error: {
+        code: errorCode,
+        message: errorMessage,
+      },
+      trace: traceResult.trace,
+      metadata: {
+        duration_ms: Math.round(performance.now() - startTime),
+        total_tokens: traceResult.totalTokenUsage.totalTokens,
+      },
+    };
+  }
+}
+
+// ============================================================================
+// GET EXECUTION STATUS
+// Retrieve execution status and trace
+// ============================================================================
+
+async function getExecutionStatus(
+  executionId: string
+): Promise<{
+  success: boolean;
+  state?: ExecutionState;
+  trace?: ExecutionTrace;
+  error?: { code: string; message: string };
+}> {
+  try {
+    const state = await loadExecutionState(executionId);
+
+    if (!state) {
+      return {
+        success: false,
+        error: {
+          code: "EXECUTION_NOT_FOUND",
+          message: `Execution ${executionId} not found`,
+        },
+      };
+    }
+
+    return {
+      success: true,
+      state,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: "LOAD_ERROR",
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+// ============================================================================
+// API ROUTE HANDLERS
+// ============================================================================
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const requestStartTime = performance.now();
+
+  try {
+    // Parse and validate request body
+    const body = await request.json();
+    const validation = ExecuteRequestSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: `Invalid request: ${validation.error.message}`,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const { input, context, options } = validation.data;
+
+    // Execute orchestration
+    const result = await orchestrateExecution(input, context, options);
+
+    // Build response
+    const response = ExecuteResponseSchema.parse({
+      success: result.success,
+      execution_id: result.execution_id,
+      status: result.status,
+      intent: result.intent,
+      plan: result.plan,
+      result: result.execution_result,
+      error: result.error,
+      trace: result.trace,
+      metadata: result.metadata,
+    });
+
+    const requestDuration = Math.round(performance.now() - requestStartTime);
+    console.log(
+      `[Execute] ${result.execution_id} completed in ${requestDuration}ms with status ${result.status}`
+    );
+
+    return NextResponse.json(response, {
+      status: result.success ? 200 : 400,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+
+    console.error("[Execute] Unhandled error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: errorMessage,
+        },
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const { searchParams } = new URL(request.url);
+    const executionId = searchParams.get("execution_id");
+
+    if (!executionId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "MISSING_PARAMETER",
+            message: "execution_id query parameter is required",
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await getExecutionStatus(executionId);
+
+    if (!result.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      execution_id: executionId,
+      status: result.state?.status,
+      state: result.state,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: errorMessage,
+        },
+      },
+      { status: 500 }
+    );
   }
 }

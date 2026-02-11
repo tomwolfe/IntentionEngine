@@ -188,11 +188,16 @@ export async function POST(req: Request) {
     Explain what went wrong and provide a modified plan or alternative action to the user.
     Do not simply repeat the same failed call.
 
+    IMPORTANT TRANSACTIONAL GUARD: 
+    - NEVER call 'add_calendar_event' for a booking until the booking tool has returned 'success: true'.
+    - If a booking tool returns 'CONFIRMATION_REQUIRED', you must stop, present the details to the user, and ask for their confirmation. Do NOT call the booking tool with 'is_confirmed: true' until the user has explicitly said yes.
+
     If a user request requires multiple steps (e.g., finding a place and then scheduling it), the intent is PLANNING.
     When intent is PLANNING:
     1. Acknowledge the multi-step goal.
     2. Outline a structured step-by-step plan to the user.
     3. Execute tools according to the plan.
+    4. Ensure action tools (booking, rides) are only called after user confirmation of the specific details.
 
     ${toolCapabilitiesPrompt}
     `;
@@ -293,8 +298,10 @@ export async function POST(req: Request) {
           time: z.string().describe("The time of the reservation."),
           party_size: z.number().describe("The number of people in the party."),
           contact_name: z.string().describe("The name for the reservation."),
-          contact_phone: z.string().optional().describe("The phone number for the reservation."),
+          contact_phone: z.string().describe("The phone number for the reservation."),
+          contact_email: z.string().optional().describe("The email address for the reservation."),
           special_requests: z.string().optional().describe("Any special requests for the reservation."),
+          is_confirmed: z.boolean().optional().describe("Set to true ONLY if the user has explicitly confirmed these specific details."),
         }),
         execute: async (params: any) => {
           console.log("Executing book_restaurant_table", params);

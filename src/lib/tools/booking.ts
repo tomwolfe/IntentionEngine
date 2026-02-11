@@ -7,11 +7,13 @@ export const TableReservationSchema = z.object({
   lat: z.number().optional().describe("Latitude of the restaurant for precise booking."),
   lon: z.number().optional().describe("Longitude of the restaurant for precise booking."),
   date: z.string().describe("The date of the reservation (ISO 8601 format, e.g., '2026-02-11')."),
-  reservation_time: z.string().describe("The time of the reservation (e.g., '19:00')."),
+  time: z.string().describe("The time of the reservation (e.g., '19:00')."),
   party_size: z.number().int().positive().describe("Number of people in the party."),
-  contact_name: z.string().optional().describe("The name for the reservation."),
-  contact_phone: z.string().optional().describe("Contact phone number for the reservation."),
-  special_requests: z.string().optional().describe("Any special requests for the reservation.")
+  contact_name: z.string().describe("The name for the reservation."),
+  contact_phone: z.string().describe("Contact phone number for the reservation."),
+  contact_email: z.string().email().optional().describe("Contact email for the reservation."),
+  special_requests: z.string().optional().describe("Any special requests for the reservation."),
+  is_confirmed: z.boolean().default(false).describe("Set to true ONLY if the user has explicitly confirmed these specific details.")
 });
 
 export type TableReservationParams = z.infer<typeof TableReservationSchema>;
@@ -21,9 +23,10 @@ export const tableReservationReturnSchema = {
   confirmation_code: "string",
   restaurant: "string",
   restaurant_location: "object",
-  reservation_time: "string",
+  time: "string",
   date: "string",
-  party_size: "number"
+  party_size: "number",
+  message: "string"
 };
 
 import { geocode_location } from "./location_search";
@@ -34,8 +37,27 @@ export async function reserve_table(params: TableReservationParams): Promise<{ s
     return { success: false, error: "Invalid parameters: " + JSON.stringify(validated.error.format()) };
   }
   
-  const { restaurant_name, restaurant_address, lat, lon, party_size, date, reservation_time } = validated.data;
-  console.log(`Reserving table for ${party_size} at ${restaurant_name} on ${date} at ${reservation_time}...`);
+  const { 
+    restaurant_name, restaurant_address, lat, lon, 
+    party_size, date, time, 
+    contact_name, contact_phone, contact_email,
+    is_confirmed 
+  } = validated.data;
+
+  if (!is_confirmed) {
+    return {
+      success: false,
+      error: `CONFIRMATION_REQUIRED: Please present these details to the user and ask for explicit confirmation before booking:\n` +
+             `- Restaurant: ${restaurant_name}\n` +
+             `- Date: ${date}\n` +
+             `- Time: ${time}\n` +
+             `- Party Size: ${party_size}\n` +
+             `- Contact: ${contact_name} (${contact_phone}${contact_email ? `, ${contact_email}` : ""})\n` +
+             `Set 'is_confirmed: true' only after the user says yes.`
+    };
+  }
+  
+  console.log(`Reserving table for ${party_size} at ${restaurant_name} on ${date} at ${time}...`);
   
   try {
     let locationResult = null;
@@ -64,9 +86,9 @@ export async function reserve_table(params: TableReservationParams): Promise<{ s
         restaurant: restaurant_name,
         restaurant_location: locationResult,
         date: date,
-        reservation_time: reservation_time,
+        time: time,
         party_size: party_size,
-        message: `Table for ${party_size} confirmed at ${restaurant_name} on ${date} at ${reservation_time}${locationInfo}.`
+        message: `Table for ${party_size} confirmed at ${restaurant_name} on ${date} at ${time}${locationInfo}. Confirmation code: ${confirmationCode}.`
       }
     };
   } catch (error: any) {
@@ -86,13 +108,13 @@ export const reserveTableToolDefinition: ToolDefinitionMetadata = {
       lat: { type: "number", description: "Latitude of the restaurant." },
       lon: { type: "number", description: "Longitude of the restaurant." },
       date: { type: "string", description: "The date of the reservation (ISO 8601 format)." },
-      reservation_time: { type: "string", description: "The time of the reservation (e.g., '19:00')." },
+      time: { type: "string", description: "The time of the reservation (e.g., '19:00')." },
       party_size: { type: "number", description: "Number of guests." },
       contact_name: { type: "string", description: "The name for the reservation." },
       contact_phone: { type: "string", description: "The contact phone for the reservation." },
       special_requests: { type: "string", description: "Any special requests." }
     },
-    required: ["restaurant_name", "date", "party_size", "reservation_time"]
+    required: ["restaurant_name", "date", "party_size", "time"]
   },
   return_schema: tableReservationReturnSchema,
   timeout_ms: 30000,

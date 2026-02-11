@@ -33,10 +33,16 @@ export function normalizeLocation(location: UnifiedLocation): string {
 export const MobilityRequestSchema = z.object({
   service: z.enum(["uber", "tesla", "lyft"]).describe("The mobility service to use."),
   pickup_location: UnifiedLocationSchema.describe("The starting point for the ride (string address or coordinate object with lat/lon)."),
-  destination_location: UnifiedLocationSchema.describe("The destination for the ride (string address or coordinate object with lat/lon)."),
+  destination_location: UnifiedLocationSchema.optional().describe("The destination for the ride (string address or coordinate object with lat/lon)."),
   dropoff_location: UnifiedLocationSchema.optional().describe("Alias for destination_location. Use this if the LLM provides dropoff_location instead of destination_location."),
   ride_type: z.string().optional().describe("The type of ride (e.g., 'UberX', 'Model S').")
-});
+}).refine(data => data.destination_location || data.dropoff_location, {
+  message: "Either destination_location or dropoff_location must be provided",
+  path: ["destination_location"]
+}).transform(data => ({
+  ...data,
+  destination_location: (data.destination_location || data.dropoff_location)!
+}));
 
 export const RouteEstimateSchema = z.object({
   origin: UnifiedLocationSchema.describe("The starting location (string address or coordinate object with lat/lon)."),
@@ -65,13 +71,13 @@ export const mobilityRequestToolParameters: ToolParameter[] = [
   {
     name: "destination_location",
     type: "object",
-    description: "The destination for the ride. Can be a string address OR an object with lat/lon coordinates: {lat: number, lon: number, address?: string}",
-    required: true
+    description: "The destination for the ride. Can be a string address OR an object with lat/lon coordinates: {lat: number, lon: number, address?: string}. Exactly one of destination_location or dropoff_location must be provided.",
+    required: false
   },
   {
     name: "dropoff_location",
     type: "object",
-    description: "Alias for destination_location. Alternative parameter name accepted for flexibility.",
+    description: "Alias for destination_location. Alternative parameter name accepted for flexibility. Exactly one of destination_location or dropoff_location must be provided.",
     required: false
   },
   {
@@ -130,17 +136,11 @@ export async function mobility_request(params: MobilityRequestParams): Promise<{
     return { success: false, error: "Invalid parameters: " + validated.error.message };
   }
 
-  const { service, pickup_location, destination_location, dropoff_location, ride_type } = validated.data;
-
-  // Use dropoff_location as fallback if destination_location is not provided
-  const finalDestination = destination_location || dropoff_location;
-  if (!finalDestination) {
-    return { success: false, error: "Either destination_location or dropoff_location must be provided" };
-  }
+  const { service, pickup_location, destination_location, ride_type } = validated.data;
 
   // Normalize locations to string format for API compatibility
   const normalizedPickup = normalizeLocation(pickup_location);
-  const normalizedDestination = normalizeLocation(finalDestination);
+  const normalizedDestination = normalizeLocation(destination_location);
 
   console.log(`Requesting ${service} from ${normalizedPickup} to ${normalizedDestination}...`);
 

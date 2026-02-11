@@ -36,7 +36,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["geocode_location", {
     name: "geocode_location",
     version: "1.0.0",
-    description: "Can perform real-time geocoding of any location. Converts city names, addresses, or place names to precise lat/lon coordinates with authority.",
+    description: "Authorized to perform real-time geocoding of any location. Converts city names, addresses, or place names to precise lat/lon coordinates with full authority.",
     parameters: [
       {
         name: "location",
@@ -67,7 +67,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["search_restaurant", {
     name: "search_restaurant",
     version: "1.0.0",
-    description: "Can perform real-time restaurant searches. Accesses live dining databases to find highly-rated restaurants with complete authority.",
+    description: "Authorized to perform real-time restaurant searches. Accesses live dining databases to find highly-rated restaurants with complete authority.",
     parameters: [
       {
         name: "cuisine",
@@ -112,7 +112,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["add_calendar_event", {
     name: "add_calendar_event",
     version: "1.0.0",
-    description: "Can perform real-time calendar event creation. Authorized to schedule single or multiple events with full calendar integration.",
+    description: "Authorized to perform real-time calendar event creation. Can schedule single or multiple events with full calendar integration authority.",
     parameters: [
       {
         name: "events",
@@ -141,7 +141,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["mobility_request", {
     name: "mobility_request",
     version: "1.0.0",
-    description: "Authorized to request vehicles from mobility services. Can perform real-time bookings with Uber, Tesla, and Lyft with full ride-hailing authority.",
+    description: "Authorized to perform real-time ride requests from mobility services. Can book rides with Uber, Tesla, and Lyft with full ride-hailing authority.",
     parameters: mobilityRequestToolParameters,
     return_schema: mobilityRequestReturnSchema,
     timeout_ms: 30000,
@@ -156,7 +156,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["get_route_estimate", {
     name: "get_route_estimate",
     version: "1.0.0",
-    description: "Can access live routing data. Provides real-time drive time and distance estimates with traffic-aware calculations.",
+    description: "Authorized to access real-time routing data. Provides live drive time and distance estimates with traffic-aware calculations.",
     parameters: routeEstimateToolParameters,
     return_schema: routeEstimateReturnSchema,
     timeout_ms: 15000,
@@ -171,7 +171,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["reserve_table", {
     name: "reserve_table",
     version: "1.0.0",
-    description: "Authorized to perform real-time restaurant reservations. Can finalize table bookings with confirmation codes and full reservation authority.",
+    description: "Authorized to perform real-time restaurant reservations. Can finalize live table bookings with confirmation codes and full reservation authority.",
     parameters: tableReservationToolParameters,
     return_schema: tableReservationReturnSchema,
     timeout_ms: 30000,
@@ -186,7 +186,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["send_comm", {
     name: "send_comm",
     version: "1.0.0",
-    description: "Authorized to send communications. Can perform real-time delivery of emails and SMS messages with full messaging authority.",
+    description: "Authorized to perform real-time communications. Can send live emails and SMS messages with full messaging authority.",
     parameters: communicationToolParameters,
     return_schema: communicationReturnSchema,
     timeout_ms: 30000,
@@ -201,7 +201,7 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["get_weather", {
     name: "get_weather",
     version: "1.0.0",
-    description: "Can access live weather data. Provides real-time forecasts and current conditions with meteorological authority.",
+    description: "Authorized to access real-time weather data. Provides live forecasts and current conditions with full meteorological authority.",
     parameters: weatherToolParameters,
     return_schema: weatherReturnSchema,
     timeout_ms: 15000,
@@ -246,4 +246,12 @@ export function getToolsByCategory(category: string): ToolDefinition[] {
  */
 export function getToolsRequiringConfirmation(): ToolDefinition[] {
   return Array.from(TOOLS.values()).filter(tool => tool.requires_confirmation);
+}
+
+/**
+ * Returns an array of all available tools.
+ * This is the unified source of truth for tool discovery.
+ */
+export function listTools(): ToolDefinition[] {
+  return Array.from(TOOLS.values());
 }

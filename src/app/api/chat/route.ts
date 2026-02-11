@@ -1,7 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { streamText, tool, stepCountIs, convertToModelMessages, generateObject } from "ai";
 import { z } from "zod";
-import { search_restaurant, add_calendar_event, geocode_location } from "@/lib/tools";
+import { search_restaurant, add_calendar_event, geocode_location, getToolCapabilitiesPrompt, listTools } from "@/lib/tools";
 import { env } from "@/lib/config";
 import { inferIntent } from "@/lib/intent";
 import { Redis } from "@upstash/redis";
@@ -161,8 +161,12 @@ export async function POST(req: Request) {
       : "";
 
     // Logic driven by intent:
-    // 1. Dynamic System Prompt
+    // 1. Dynamic System Prompt (with tool capabilities injection)
     // 2. Filtered Toolset
+    
+    // Get dynamic tool capabilities for the system prompt
+    const toolCapabilitiesPrompt = getToolCapabilitiesPrompt();
+    
     let systemPrompt = `You are an Intention Engine.
     ${userPreferences ? `### Known User Facts:\n${JSON.stringify(userPreferences)}` : ""}
 
@@ -188,6 +192,8 @@ export async function POST(req: Request) {
     1. Acknowledge the multi-step goal.
     2. Outline a structured step-by-step plan to the user.
     3. Execute tools according to the plan.
+
+    ${toolCapabilitiesPrompt}
     `;
 
     const allTools = {
@@ -244,6 +250,109 @@ export async function POST(req: Request) {
           return result;
         },
       }),
+      mobility_request: tool({
+        description: "Authorized to perform real-time ride requests from mobility services. Can book rides with Uber, Tesla, and Lyft with full ride-hailing authority.",
+        inputSchema: z.object({
+          service: z.enum(["uber", "lyft", "tesla"]).describe("The mobility service to use (uber, lyft, or tesla)."),
+          pickup_location: z.object({
+            lat: z.number(),
+            lon: z.number(),
+            address: z.string().optional(),
+          }).describe("The pickup location coordinates and optional address."),
+          dropoff_location: z.object({
+            lat: z.number(),
+            lon: z.number(),
+            address: z.string().optional(),
+          }).describe("The dropoff location coordinates and optional address."),
+          ride_type: z.enum(["economy", "premium", "xl"]).optional().describe("The type of ride (economy, premium, or xl)."),
+        }),
+        execute: async (params: any) => {
+          console.log("Executing mobility_request", params);
+          const result = await executeToolWithContext("mobility_request", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
+          });
+          return result;
+        },
+      }),
+      get_route_estimate: tool({
+        description: "Authorized to access real-time routing data. Provides live drive time and distance estimates with traffic-aware calculations.",
+        inputSchema: z.object({
+          origin: z.object({
+            lat: z.number(),
+            lon: z.number(),
+          }).describe("The starting location coordinates."),
+          destination: z.object({
+            lat: z.number(),
+            lon: z.number(),
+          }).describe("The destination location coordinates."),
+          mode: z.enum(["driving", "walking", "transit"]).optional().describe("The mode of transportation."),
+        }),
+        execute: async (params: any) => {
+          console.log("Executing get_route_estimate", params);
+          const result = await executeToolWithContext("get_route_estimate", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
+          });
+          return result;
+        },
+      }),
+      reserve_table: tool({
+        description: "Authorized to perform real-time restaurant reservations. Can finalize live table bookings with confirmation codes and full reservation authority.",
+        inputSchema: z.object({
+          restaurant_name: z.string().describe("The name of the restaurant."),
+          restaurant_address: z.string().describe("The address of the restaurant."),
+          date: z.string().describe("The date of the reservation (ISO 8601 format)."),
+          time: z.string().describe("The time of the reservation."),
+          party_size: z.number().describe("The number of people in the party."),
+          contact_name: z.string().describe("The name for the reservation."),
+          contact_phone: z.string().optional().describe("The phone number for the reservation."),
+          special_requests: z.string().optional().describe("Any special requests for the reservation."),
+        }),
+        execute: async (params: any) => {
+          console.log("Executing reserve_table", params);
+          const result = await executeToolWithContext("reserve_table", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
+          });
+          return result;
+        },
+      }),
+      send_comm: tool({
+        description: "Authorized to perform real-time communications. Can send live emails and SMS messages with full messaging authority.",
+        inputSchema: z.object({
+          type: z.enum(["email", "sms"]).describe("The type of communication (email or sms)."),
+          to: z.string().describe("The recipient address or phone number."),
+          subject: z.string().optional().describe("The subject line (for email)."),
+          body: z.string().describe("The message body content."),
+        }),
+        execute: async (params: any) => {
+          console.log("Executing send_comm", params);
+          const result = await executeToolWithContext("send_comm", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
+          });
+          return result;
+        },
+      }),
+      get_weather: tool({
+        description: "Authorized to access real-time weather data. Provides live forecasts and current conditions with full meteorological authority.",
+        inputSchema: z.object({
+          location: z.object({
+            lat: z.number(),
+            lon: z.number(),
+          }).describe("The location coordinates for weather lookup."),
+          type: z.enum(["current", "forecast"]).optional().describe("Whether to get current conditions or forecast."),
+        }),
+        execute: async (params: any) => {
+          console.log("Executing get_weather", params);
+          const result = await executeToolWithContext("get_weather", params, {
+            audit_log_id: auditLog.id,
+            step_index: auditLog.steps.length
+          });
+          return result;
+        },
+      }),
     };
 
     // Filter tools based on intent to minimize surface area (Phase 3: Tool Scoping)
@@ -259,6 +368,27 @@ export async function POST(req: Request) {
     // Specifically NOT provided for RESTAURANT intent in the first turn as per requirements.
     if (intentType === "SCHEDULE" || intentType === "UNKNOWN" || intentType === "PLANNING") {
       enabledTools.add_calendar_event = allTools.add_calendar_event;
+    }
+
+    // Mobility and route tools for transportation intents
+    if (intentType === "MOBILITY" || intentType === "TRANSPORT" || intentType === "RIDE" || intentType === "UNKNOWN" || intentType === "PLANNING") {
+      enabledTools.mobility_request = allTools.mobility_request;
+      enabledTools.get_route_estimate = allTools.get_route_estimate;
+    }
+
+    // Weather tool for weather intents
+    if (intentType === "WEATHER" || intentType === "UNKNOWN" || intentType === "PLANNING") {
+      enabledTools.get_weather = allTools.get_weather;
+    }
+
+    // Reservation tool for booking intents
+    if (intentType === "RESERVATION" || intentType === "BOOKING" || intentType === "UNKNOWN" || intentType === "PLANNING") {
+      enabledTools.reserve_table = allTools.reserve_table;
+    }
+
+    // Communication tool for messaging intents
+    if (intentType === "COMMUNICATION" || intentType === "MESSAGE" || intentType === "EMAIL" || intentType === "SMS" || intentType === "UNKNOWN" || intentType === "PLANNING") {
+      enabledTools.send_comm = allTools.send_comm;
     }
 
     if (intentType === "ACTION") {

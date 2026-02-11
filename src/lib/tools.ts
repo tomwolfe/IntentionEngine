@@ -1,4 +1,4 @@
-import { ToolDefinition, ExecuteToolResult } from "./tools/types";
+import { ToolDefinition, ToolDefinitionMetadata, ExecuteToolResult } from "./tools/types";
 import { geocode_location, search_restaurant, GeocodeSchema, SearchRestaurantSchema } from "./tools/location_search";
 import { add_calendar_event } from "./tools/calendar";
 import { TOOLS, getToolDefinitions } from "./tools/registry";
@@ -13,4 +13,4 @@ export {
   SearchRestaurantSchema
 };
 
-export type { ToolDefinition, ExecuteToolResult };
+export type { ToolDefinition, ToolDefinitionMetadata, ExecuteToolResult };

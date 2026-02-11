@@ -2,17 +2,57 @@ import { z } from "zod";
 import { ToolDefinition } from "./types";
 import { geocode_location, search_restaurant, GeocodeSchema, SearchRestaurantSchema } from "./location_search";
 import { add_calendar_event, AddCalendarEventSchema } from "./calendar";
-import { mobility_request, get_route_estimate, MobilityRequestSchema, RouteEstimateSchema } from "./mobility";
-import { reserve_table, TableReservationSchema } from "./booking";
-import { send_comm, CommunicationSchema } from "./communication";
-import { get_weather, WeatherSchema } from "./context";
+import { 
+  mobility_request, 
+  get_route_estimate, 
+  mobilityRequestToolDefinition,
+  routeEstimateToolDefinition
+} from "./mobility";
+import { 
+  reserve_table, 
+  reserveTableToolDefinition 
+} from "./booking";
+import { 
+  send_comm, 
+  sendCommToolDefinition 
+} from "./communication";
+import { 
+  get_weather, 
+  getWeatherToolDefinition 
+} from "./context";
 import { RestaurantResultSchema } from "../schema";
 
+/**
+ * Tool registry with complete ToolDefinition metadata for all tools.
+ * Each tool is registered with its full definition including parameters,
+ * return schema, category, and confirmation requirements.
+ */
 export const TOOLS: Map<string, ToolDefinition> = new Map([
   ["geocode_location", {
     name: "geocode_location",
+    version: "1.0.0",
     description: "Converts a city or place name to lat/lon coordinates.",
-    parameters: GeocodeSchema,
+    parameters: [
+      {
+        name: "location",
+        type: "string",
+        description: "The city, neighborhood, or specific place name to geocode. Use 'nearby' for the user's current area.",
+        required: true
+      },
+      {
+        name: "userLocation",
+        type: "object",
+        description: "The user's current GPS coordinates for biasing search results.",
+        required: false
+      }
+    ],
+    return_schema: {
+      lat: "number",
+      lon: "number"
+    },
+    timeout_ms: 15000,
+    requires_confirmation: false,
+    category: "data",
     responseSchema: z.object({
       lat: z.number(),
       lon: z.number()
@@ -21,15 +61,70 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
   }],
   ["search_restaurant", {
     name: "search_restaurant",
+    version: "1.0.0",
     description: "Searches for highly-rated restaurants nearby or in a specific location.",
-    parameters: SearchRestaurantSchema,
+    parameters: [
+      {
+        name: "cuisine",
+        type: "string",
+        description: "The type of cuisine to search for (e.g., 'Italian', 'Sushi', 'Burgers').",
+        required: false
+      },
+      {
+        name: "lat",
+        type: "number",
+        description: "Latitude for the search center.",
+        required: false
+      },
+      {
+        name: "lon",
+        type: "number",
+        description: "Longitude for the search center.",
+        required: false
+      },
+      {
+        name: "location",
+        type: "string",
+        description: "A text-based location (e.g., 'Soho, London') to search near if coordinates are not provided.",
+        required: false
+      },
+      {
+        name: "userLocation",
+        type: "object",
+        description: "The user's current GPS coordinates for proximity biasing.",
+        required: false
+      }
+    ],
+    return_schema: {
+      results: "array"
+    },
+    timeout_ms: 30000,
+    requires_confirmation: false,
+    category: "data",
     responseSchema: z.array(RestaurantResultSchema),
     execute: search_restaurant
   }],
   ["add_calendar_event", {
     name: "add_calendar_event",
+    version: "1.0.0",
     description: "Adds an event to the calendar. Can accept multiple events for bulk scheduling.",
-    parameters: AddCalendarEventSchema,
+    parameters: [
+      {
+        name: "events",
+        type: "array",
+        description: "An array of one or more calendar events to schedule.",
+        required: true
+      }
+    ],
+    return_schema: {
+      status: "string",
+      count: "number",
+      download_url: "string",
+      events: "array"
+    },
+    timeout_ms: 15000,
+    requires_confirmation: false,
+    category: "action",
     responseSchema: z.object({
       status: z.string(),
       count: z.number(),
@@ -39,33 +134,23 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
     execute: add_calendar_event
   }],
   ["mobility_request", {
-    name: "mobility_request",
-    description: "For Uber/Tesla integration. Requests a ride from pickup to destination.",
-    parameters: MobilityRequestSchema,
+    ...mobilityRequestToolDefinition,
     execute: mobility_request
   }],
   ["get_route_estimate", {
-    name: "get_route_estimate",
-    description: "For drive time and distance between two locations.",
-    parameters: RouteEstimateSchema,
+    ...routeEstimateToolDefinition,
     execute: get_route_estimate
   }],
   ["reserve_table", {
-    name: "reserve_table",
-    description: "To finalize restaurant bookings.",
-    parameters: TableReservationSchema,
+    ...reserveTableToolDefinition,
     execute: reserve_table
   }],
   ["send_comm", {
-    name: "send_comm",
-    description: "For email/SMS side-effects.",
-    parameters: CommunicationSchema,
+    ...sendCommToolDefinition,
     execute: send_comm
   }],
   ["get_weather", {
-    name: "get_weather",
-    description: "For temporal planning context. Gets weather forecast for a location.",
-    parameters: WeatherSchema,
+    ...getWeatherToolDefinition,
     execute: get_weather
   }]
 ]);
@@ -76,9 +161,29 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
 export function getToolDefinitions(): string {
   let definitions = "";
   TOOLS.forEach((tool, name) => {
-    const params = Object.keys(tool.parameters.shape).join(", ");
-    definitions += `- ${name}(${params}): ${tool.description}
-`;
+    const params = tool.parameters.map(p => p.name).join(", ");
+    definitions += `- ${name}(${params}): ${tool.description}\n`;
   });
   return definitions;
+}
+
+/**
+ * Gets a tool definition by name.
+ */
+export function getTool(name: string): ToolDefinition | undefined {
+  return TOOLS.get(name);
+}
+
+/**
+ * Gets all tools by category.
+ */
+export function getToolsByCategory(category: string): ToolDefinition[] {
+  return Array.from(TOOLS.values()).filter(tool => tool.category === category);
+}
+
+/**
+ * Gets all tools that require confirmation.
+ */
+export function getToolsRequiringConfirmation(): ToolDefinition[] {
+  return Array.from(TOOLS.values()).filter(tool => tool.requires_confirmation);
 }

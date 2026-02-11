@@ -1,5 +1,4 @@
 import { Intent, IntentSchema, IntentType } from "./schema";
-import { randomUUID } from "crypto";
 
 /**
  * Normalization Rules based on Intent Ontology.
@@ -31,7 +30,7 @@ export function normalizeIntent(
   // 1. Basic validation
   const parsed = IntentSchema.safeParse({
     ...candidate,
-    id: candidate.id || randomUUID(),
+    id: candidate.id || crypto.randomUUID(),
     rawText: rawText,
     metadata: {
       version: "1.0.0",
@@ -81,7 +80,7 @@ function createFallbackIntent(
   modelId: string
 ): Intent {
   return {
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     type,
     confidence: 0,
     parameters: {},

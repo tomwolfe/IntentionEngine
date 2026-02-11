@@ -1,7 +1,8 @@
-import { Plan, PlanSchema } from "./schema";
+import { Plan, PlanSchema, Intent } from "./schema";
 import { env } from "./config";
 
-export async function generatePlan(intent: string, userLocation?: { lat: number; lng: number } | null): Promise<Plan> {
+export async function generatePlan(intent: string | Intent, userLocation?: { lat: number; lng: number } | null): Promise<Plan> {
+  const intentText = typeof intent === "string" ? intent : intent.rawText;
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
@@ -13,7 +14,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
   if (!apiKey) {
     // For demonstration purposes if no API key is provided, we return a mock plan
     // for the specific example "plan a dinner and add to calendar"
-    if (intent.toLowerCase().includes("dinner") && intent.toLowerCase().includes("calendar")) {
+    if (intentText.toLowerCase().includes("dinner") && intentText.toLowerCase().includes("calendar")) {
       return {
         intent_type: "plan_dinner_and_calendar",
         constraints: ["dinner time at 7 PM", "cuisine: Italian"],
@@ -99,7 +100,7 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
         },
         {
           role: "user",
-          content: intent
+          content: intentText
         }
       ],
       response_format: { type: "json_object" }
@@ -119,13 +120,14 @@ export async function generatePlan(intent: string, userLocation?: { lat: number;
 }
 
 export async function replan(
-  originalIntent: string, 
+  originalIntent: string | Intent, 
   auditLog: any, 
   failedStepIndex: number, 
   error: string,
   failedStepContext?: { parameters: any; result: any },
   errorType?: "validation" | "technical" | "logic"
 ): Promise<Plan> {
+  const intentText = typeof originalIntent === "string" ? originalIntent : originalIntent.rawText;
   const apiKey = env.LLM_API_KEY;
   const baseUrl = env.LLM_BASE_URL;
   const model = env.LLM_MODEL;
@@ -164,7 +166,7 @@ export async function replan(
           ${contextSnippet}
           ${validationInstruction}
           
-          Original Intent: ${originalIntent}
+          Original Intent: ${intentText}
           
           Execution History:
           ${executionHistory}

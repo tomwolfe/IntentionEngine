@@ -2,7 +2,6 @@ import { Redis } from "@upstash/redis";
 import { Plan, Intent } from "./schema";
 import { env } from "./config";
 import { AuditLog } from "./types";
-import { randomUUID } from "crypto";
 
 const redis = (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)
   ? new Redis({
@@ -20,7 +19,7 @@ export async function createAuditLog(
   userLocation?: { lat: number; lng: number },
   userId: string = "anonymous"
 ): Promise<AuditLog> {
-  const id = randomUUID();
+  const id = crypto.randomUUID();
   const log: AuditLog = {
     id,
     timestamp: new Date().toISOString(),

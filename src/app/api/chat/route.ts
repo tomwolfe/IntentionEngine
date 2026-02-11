@@ -126,16 +126,24 @@ export async function POST(req: Request) {
       const { avoidTools } = await getPlanWithAvoidance(userText, userIp);
       const inferenceResult = await inferIntent(userText, avoidTools);
       intentInferenceLatency = Date.now() - intentStart;
-      intent = inferenceResult.intent;
+      intent = inferenceResult.hypotheses.primary;
       rawModelResponse = inferenceResult.rawResponse;
       console.log("[Phase 4] Structured Intent Inferred:", intent.type, "Confidence:", intent.confidence);
     } catch (e) {
       console.error("Intent inference failed, falling back to UNKNOWN", e);
-      intent = { type: "UNKNOWN", confidence: 0, parameters: {}, rawText: userText };
+      // Create a minimal valid intent object
+      intent = { 
+        id: crypto.randomUUID(),
+        type: "UNKNOWN", 
+        confidence: 0, 
+        parameters: {}, 
+        rawText: userText,
+        metadata: { version: "1.0.0", timestamp: new Date().toISOString(), source: "error_fallback" }
+      } as any;
     }
 
     // Initialize Audit Log
-    const auditLog = await createAuditLog(intent.type, undefined, userLocation || undefined, userIp);
+    const auditLog = await createAuditLog(intent, undefined, userLocation || undefined, userIp);
     await updateAuditLog(auditLog.id, { 
       rawModelResponse,
       inferenceLatencies: { intentInference: intentInferenceLatency }
@@ -166,7 +174,7 @@ export async function POST(req: Request) {
 
     ${failureWarnings}
 
-    ${intent.type === 'clarification_needed' ? `IMPORTANT: Your confidence in the user's intent is LOW. You MUST ask the following clarification question: "${intent.question}"` : ""}
+    ${intent.type === 'CLARIFICATION_NEEDED' ? `IMPORTANT: Your confidence in the user's intent is LOW. You MUST ask a clarification question. Explanation: "${intent.explanation}"` : ""}
 
     If a tool returns success: false, you MUST acknowledge the error and attempt to REPLAN. 
     Explain what went wrong and provide a modified plan or alternative action to the user.

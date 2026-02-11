@@ -342,7 +342,7 @@ export async function executePlan(
   const executionId = options.executionId || crypto.randomUUID();
 
   let state = options.initialState || createInitialState(executionId);
-  state = applyStateUpdate(state, { plan });
+  state = applyStateUpdate(state, { plan, status: "PLANNED" });
 
   const transitionResult = transitionState(state, "EXECUTING");
   if (!transitionResult.success) {

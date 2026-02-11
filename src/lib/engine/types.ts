@@ -318,7 +318,7 @@ export type ExecutionState = z.infer<typeof ExecutionStateSchema>;
 // ============================================================================
 
 export const ValidStateTransitions: Record<ExecutionStatus, ExecutionStatus[]> = {
-  RECEIVED: ["PARSING", "CANCELLED", "EXECUTING"],
+  RECEIVED: ["PARSING", "CANCELLED"],
   PARSING: ["PARSED", "REJECTED", "TIMEOUT", "FAILED"],
   PARSED: ["PLANNING", "CANCELLED"],
   PLANNING: ["PLANNED", "REJECTED", "TIMEOUT", "FAILED"],

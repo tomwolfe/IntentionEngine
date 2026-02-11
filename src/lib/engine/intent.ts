@@ -79,11 +79,11 @@ const INTENT_CLASSIFICATION_PROMPT = `You are an intent classification system. Y
 - SCHEDULE: Calendar operations, scheduling meetings, booking appointments
 - SEARCH: Finding information, looking up data, searching for items
 - ACTION: Performing an action like sending email, making a call, creating a task
-- QUERY: Asking for specific information or data retrieval
+- QUERY: Asking for specific information or data retrieval (e.g., weather, status, facts)
 - PLANNING: Multi-step planning, trip planning, project planning
 - ANALYSIS: Data analysis, summarization, comparison, evaluation
-- UNKNOWN: Cannot determine intent from input
-- CLARIFICATION_REQUIRED: Intent is ambiguous or incomplete
+- UNKNOWN: Only use this if the input is complete gibberish or has no discernible intent
+- CLARIFICATION_REQUIRED: Intent is ambiguous or missing critical information (e.g., "Schedule it" without saying what or when)
 
 ## Confidence Guidelines
 - 0.9-1.0: Very clear, unambiguous intent
@@ -91,6 +91,13 @@ const INTENT_CLASSIFICATION_PROMPT = `You are an intent classification system. Y
 - 0.5-0.69: Moderate confidence, some ambiguity present
 - 0.3-0.49: Low confidence, significant ambiguity
 - 0.0-0.29: Very unclear, likely UNKNOWN or CLARIFICATION_REQUIRED
+
+## Multi-Entity Handling (CRITICAL)
+If the user provides a list of entities for a single request (e.g., multiple cities, people, or items), you MUST:
+1. Identify the primary intent (e.g., QUERY for weather).
+2. Extract ALL entities into an array for the appropriate parameter.
+3. NEVER fallback to UNKNOWN just because there are multiple entities.
+4. Ensure the confidence remains HIGH if the request is otherwise clear.
 
 ## Output Requirements
 1. Always provide a confidence score between 0 and 1

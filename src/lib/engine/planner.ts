@@ -216,22 +216,82 @@ function buildPlanningPrompt(context: PlannerContext): string {
 // Transform LLM output into validated Plan with UUIDs and proper structure
 // ============================================================================
 
-function convertRawPlanToPlan(
+export function convertRawPlanToPlan(
   rawPlan: RawPlan,
   intent: Intent,
   constraints: PlanConstraints,
-  modelId: string
+  modelId: string,
+  availableTools: ToolDefinition[] = []
 ): Plan {
   const timestamp = new Date().toISOString();
   
-  // Step 1: Create step ID mapping (step_number -> UUID)
+  // Step 1: Detect and handle Fan-Out needs
+  // If a step has an array parameter for a tool that expects a singleton,
+  // we split that step into multiple parallel steps.
+  const expandedSteps: RawPlanStep[] = [];
+  let nextStepNumber = 0;
+  const originalToNewStepIds = new Map<number, number[]>();
+
+  for (const rawStep of rawPlan.steps) {
+    const toolDef = availableTools.find(t => t.name === rawStep.tool_name);
+    let fanOutParamKey: string | null = null;
+    let fanOutValues: unknown[] | null = null;
+
+    if (toolDef) {
+      for (const [key, value] of Object.entries(rawStep.parameters)) {
+        const propDef = toolDef.inputSchema.properties[key];
+        if (propDef && Array.isArray(value) && ["string", "number", "boolean"].includes(propDef.type)) {
+          fanOutParamKey = key;
+          fanOutValues = value;
+          break; // Only fan out on the first array parameter found
+        }
+      }
+    }
+
+    if (fanOutParamKey && fanOutValues && fanOutValues.length > 0) {
+      const newStepNumbers: number[] = [];
+      for (const value of fanOutValues) {
+        const stepNum = nextStepNumber++;
+        newStepNumbers.push(stepNum);
+        expandedSteps.push({
+          ...rawStep,
+          step_number: stepNum,
+          parameters: {
+            ...rawStep.parameters,
+            [fanOutParamKey]: value
+          },
+          description: `${rawStep.description} (${value})`
+        });
+      }
+      originalToNewStepIds.set(rawStep.step_number, newStepNumbers);
+    } else {
+      const stepNum = nextStepNumber++;
+      originalToNewStepIds.set(rawStep.step_number, [stepNum]);
+      expandedSteps.push({
+        ...rawStep,
+        step_number: stepNum
+      });
+    }
+  }
+
+  // Update dependencies for expanded steps
+  for (const step of expandedSteps) {
+    const newDeps: number[] = [];
+    for (const oldDepNum of step.dependencies) {
+      const mappedNums = originalToNewStepIds.get(oldDepNum) || [];
+      newDeps.push(...mappedNums);
+    }
+    step.dependencies = Array.from(new Set(newDeps));
+  }
+
+  // Step 2: Create step ID mapping (step_number -> UUID)
   const stepIdMap = new Map<number, string>();
-  for (const step of rawPlan.steps) {
+  for (const step of expandedSteps) {
     stepIdMap.set(step.step_number, randomUUID());
   }
 
-  // Step 2: Convert raw steps to canonical PlanSteps
-  const steps: PlanStep[] = rawPlan.steps.map(rawStep => {
+  // Step 3: Convert raw steps to canonical PlanSteps
+  const steps: PlanStep[] = expandedSteps.map(rawStep => {
     // Convert dependency step_numbers to UUIDs
     const dependencyUuids = rawStep.dependencies
       .map(depNum => {
@@ -256,13 +316,13 @@ function convertRawPlanToPlan(
     });
   });
 
-  // Step 3: Calculate total estimated tokens
+  // Step 4: Calculate total estimated tokens
   const totalEstimatedTokens = steps.reduce(
     (sum, step) => sum + (step.estimated_tokens || 0),
     0
   );
 
-  // Step 4: Build and validate the Plan
+  // Step 5: Build and validate the Plan
   const plan: Plan = PlanSchema.parse({
     id: randomUUID(),
     intent_id: intent.id,
@@ -294,7 +354,7 @@ function validatePlanConstraints(
   if (plan.steps.length > constraints.max_steps) {
     return {
       valid: false,
-      error: `Plan has ${plan.steps.length} steps, exceeds maximum of ${constraints.max_steps}`,
+      error: `Plan has ${plan.steps.length} steps, exceeds maximum of ${constraints.max_steps}. Total entities may exceed capacity.`,
     };
   }
 
@@ -365,7 +425,7 @@ export async function generatePlan(
     // Convert to canonical plan
     let plan: Plan;
     try {
-      plan = convertRawPlanToPlan(rawPlan, intent, constraints, llmResponse.model_id);
+      plan = convertRawPlanToPlan(rawPlan, intent, constraints, llmResponse.model_id, context.available_tools);
     } catch (conversionError) {
       const errorMessage = conversionError instanceof Error 
         ? conversionError.message 

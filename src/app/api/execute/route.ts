@@ -32,7 +32,7 @@ import {
   ExecutionTrace,
   EngineErrorSchema,
 } from "@/lib/engine/types";
-import { parseIntent, ParseResult } from "@/lib/engine/intent";
+import { parseIntent, ParseResult, validateIntentConfidence } from "@/lib/engine/intent";
 import { generatePlan, PlannerResult } from "@/lib/engine/planner";
 import {
   ExecutionOrchestrator,
@@ -212,6 +212,33 @@ async function orchestrateExecution(
     // Update state with intent
     state = setIntent(state, parseResult.intent);
     await saveExecutionState(state);
+
+    // Validate intent confidence and type
+    const validation = validateIntentConfidence(parseResult.intent);
+    
+    if (!validation.valid) {
+      tracer.addSystemEntry("intent_rejected", {
+        reason: validation.reason,
+      });
+
+      const traceResult = tracer.finalize();
+
+      return {
+        success: false,
+        execution_id: executionId,
+        status: "REJECTED",
+        intent: parseResult.intent,
+        error: {
+          code: "INTENT_VALIDATION_FAILED",
+          message: validation.reason || "Intent validation failed",
+        },
+        trace: traceResult.trace,
+        metadata: {
+          duration_ms: Math.round(performance.now() - startTime),
+          total_tokens: traceResult.totalTokenUsage.totalTokens,
+        },
+      };
+    }
 
     // Check if intent requires clarification
     if (parseResult.intent.requires_clarification) {

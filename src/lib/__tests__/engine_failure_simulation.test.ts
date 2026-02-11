@@ -264,13 +264,13 @@ async function testToolTimeout(): Promise<void> {
 
   assert(
     "Plan step should have 1 second delay but 100ms timeout",
-    plan.steps[0].parameters.delay_ms === 1000 && plan.steps[0].timeout_ms === 100,
+    (plan.steps[0].parameters.delay_ms as number) === 1000 && plan.steps[0].timeout_ms === 100,
     "Delay exceeds timeout"
   );
 
   assert(
     "Execution should fail when tool takes longer than timeout",
-    plan.steps[0].parameters.delay_ms > plan.steps[0].timeout_ms,
+    (plan.steps[0].parameters.delay_ms as number) > plan.steps[0].timeout_ms,
     "Delay is not longer than timeout"
   );
 
@@ -387,7 +387,10 @@ async function testInvalidStateTransition(): Promise<void> {
     "Valid transition failed"
   );
   
-  const invalidTransition = transitionState(validTransition, "EXECUTING");
+  // Create a mock state with the new status for the next test
+  const stateInParsing = { ...state, status: "PARSING" as ExecutionStatus };
+  
+  const invalidTransition = transitionState(stateInParsing, "EXECUTING");
   assert(
     "Invalid transition should fail",
     !invalidTransition.success,

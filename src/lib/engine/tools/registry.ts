@@ -563,7 +563,6 @@ export const BuiltInTools: ToolDefinition[] = [
 
 export function registerBuiltInTools(): void {
   const registry = getToolRegistry();
-  const persistence = new PersistenceProvider();
 
   // Wait tool
   registry.register(BuiltInTools[0], async (params) => {
@@ -589,6 +588,7 @@ export function registerBuiltInTools(): void {
   // Self-reflect tool
   registry.register(BuiltInTools[2], async (params) => {
     const intentId = params.intentId as string;
+    const persistence = new PersistenceProvider();
     try {
       const history = await persistence.getHistory(intentId);
       return {

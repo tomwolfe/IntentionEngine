@@ -11,8 +11,10 @@ import { z } from "zod";
 export class MCPClient {
   private client: Client;
   private transport: SSEClientTransport;
+  private serverUrl: string;
 
   constructor(serverUrl: string) {
+    this.serverUrl = serverUrl;
     this.transport = new SSEClientTransport(new URL(serverUrl));
     this.client = new Client(
       {
@@ -48,32 +50,100 @@ export class MCPClient {
   }
 
   /**
-   * Calls a tool on the remote MCP server.
+   * Calls a tool on the remote MCP server with exponential backoff retry.
    */
   async callTool(name: string, args: Record<string, unknown>): Promise<any> {
-    return await this.client.callTool({
-      name,
-      arguments: args,
+    return this.withRetry(async () => {
+      const result = await this.client.callTool({
+        name,
+        arguments: args,
+      });
+      return result;
     });
+  }
+
+  /**
+   * Exponential backoff with jitter retry strategy.
+   */
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    maxAttempts: number = 3,
+    baseDelay: number = 1000
+  ): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (attempt === maxAttempts) break;
+        
+        // Exponential backoff: baseDelay * 2^(attempt-1) + jitter
+        const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError;
   }
 
   /**
    * Maps an MCP tool definition to the engine's ToolDefinition.
    */
   private mapMcpToolToEngineTool(tool: McpTool): ToolDefinition {
+    // Attempt to derive return_schema from non-standard MCP metadata if available
+    const return_schema = (tool as any).outputSchema || (tool as any).returnSchema || {};
+
     return {
       name: tool.name,
-      version: "1.0.0", // MCP tools don't always have versions in the schema
+      version: "1.0.0",
       description: tool.description || "",
       inputSchema: {
         type: "object",
         properties: (tool.inputSchema as any).properties || {},
         required: (tool.inputSchema as any).required || [],
       },
-      return_schema: {}, // MCP doesn't strictly define return schemas in tool list
+      return_schema: return_schema as Record<string, unknown>,
       timeout_ms: 30000,
       requires_confirmation: false,
       category: "external",
+      origin: this.serverUrl,
     };
+  }
+
+  /**
+   * Recursive helper to map JSON Schema to Zod for deep validation.
+   */
+  public mapJsonSchemaToZod(schema: any): z.ZodTypeAny {
+    if (!schema) return z.any();
+
+    switch (schema.type) {
+      case "string":
+        if (schema.enum) {
+          return z.enum(schema.enum as [string, ...string[]]);
+        }
+        return z.string();
+      case "number":
+      case "integer":
+        return z.number();
+      case "boolean":
+        return z.boolean();
+      case "array":
+        return z.array(this.mapJsonSchemaToZod(schema.items || {}));
+      case "object":
+        const shape: any = {};
+        const properties = schema.properties || {};
+        const required = schema.required || [];
+
+        for (const [key, value] of Object.entries(properties)) {
+          let fieldSchema = this.mapJsonSchemaToZod(value);
+          if (!required.includes(key)) {
+            fieldSchema = fieldSchema.optional();
+          }
+          shape[key] = fieldSchema;
+        }
+        return z.object(shape);
+      default:
+        return z.any();
+    }
   }
 }

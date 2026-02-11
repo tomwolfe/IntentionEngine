@@ -17,6 +17,7 @@ export const ExecutionStatusSchema = z.enum([
   "PLANNING",      // Generating execution plan
   "PLANNED",       // Plan generated and validated
   "EXECUTING",     // Actively executing plan steps
+  "REFLECTING",    // Analyzing failure and replanning
   "COMPLETED",     // All steps executed successfully
   "FAILED",        // Execution failed (non-recoverable)
   "REJECTED",      // Plan or intent rejected by validation
@@ -211,6 +212,7 @@ export const ToolDefinitionSchema = z.object({
   timeout_ms: z.number().int().positive().default(30000),
   requires_confirmation: z.boolean().default(false),
   category: z.enum(["data", "action", "communication", "calculation", "external"]),
+  origin: z.string().optional(), // Added for observability (e.g., MCP server URL)
   rate_limits: z.object({
     requests_per_minute: z.number().int().positive().optional(),
     requests_per_hour: z.number().int().positive().optional(),
@@ -316,12 +318,13 @@ export type ExecutionState = z.infer<typeof ExecutionStateSchema>;
 // ============================================================================
 
 export const ValidStateTransitions: Record<ExecutionStatus, ExecutionStatus[]> = {
-  RECEIVED: ["PARSING", "CANCELLED"],
+  RECEIVED: ["PARSING", "CANCELLED", "EXECUTING"],
   PARSING: ["PARSED", "REJECTED", "TIMEOUT", "FAILED"],
   PARSED: ["PLANNING", "CANCELLED"],
   PLANNING: ["PLANNED", "REJECTED", "TIMEOUT", "FAILED"],
   PLANNED: ["EXECUTING", "CANCELLED"],
-  EXECUTING: ["COMPLETED", "FAILED", "TIMEOUT", "CANCELLED"],
+  EXECUTING: ["COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "REFLECTING"],
+  REFLECTING: ["EXECUTING", "FAILED", "CANCELLED"],
   COMPLETED: [],
   FAILED: [],
   REJECTED: [],

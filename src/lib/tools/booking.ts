@@ -32,7 +32,7 @@ export async function reserve_table(params: TableReservationParams): Promise<{ s
   try {
     // Attempt to geocode the restaurant to make it feel more "functional"
     const geo = await geocode_location({ location: restaurant_name });
-    const locationInfo = geo.success ? ` (Location: ${geo.result.lat}, ${geo.result.lon})` : "";
+    const locationInfo = (geo.success && geo.result) ? ` (Location: ${geo.result.lat}, ${geo.result.lon})` : "";
     
     // Generate a confirmation code
     const confirmationCode = Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -43,7 +43,7 @@ export async function reserve_table(params: TableReservationParams): Promise<{ s
         status: "confirmed",
         confirmation_code: confirmationCode,
         restaurant: restaurant_name,
-        restaurant_location: geo.success ? geo.result : null,
+        restaurant_location: (geo.success && geo.result) ? geo.result : null,
         time: reservation_time,
         party_size: party_size,
         message: `Table for ${party_size} confirmed at ${restaurant_name}${locationInfo}.`

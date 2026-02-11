@@ -21,6 +21,7 @@ import {
   EngineErrorSchema,
   EngineErrorCode,
 } from "../types";
+import { mapJsonSchemaToZod } from "../schema-utils";
 
 // ============================================================================
 // TOOL FUNCTION TYPE
@@ -46,6 +47,7 @@ export interface ToolExecutionContext {
   stepId: string;
   timeoutMs: number;
   startTime: number;
+  abortSignal?: AbortSignal;
 }
 
 // ============================================================================
@@ -297,74 +299,21 @@ export class ToolRegistry {
     definition: ToolDefinition,
     parameters: Record<string, unknown>
   ): { valid: boolean; error?: string } {
-    const schema = definition.inputSchema;
-    
-    // Check required parameters
-    if (schema.required) {
-      for (const requiredParam of schema.required) {
-        if (!(requiredParam in parameters)) {
-          return {
-            valid: false,
-            error: `Missing required parameter: ${requiredParam}`,
-          };
-        }
-      }
-    }
-
-    // Validate provided parameters
-    for (const [key, value] of Object.entries(parameters)) {
-      const propDef = schema.properties[key];
-
-      if (!propDef) {
+    try {
+      const zodSchema = mapJsonSchemaToZod(definition.inputSchema);
+      zodSchema.parse(parameters);
+      return { valid: true };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
         return {
           valid: false,
-          error: `Unknown parameter: ${key}`,
+          error: error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; "),
         };
       }
-
-      // Type validation (simplified)
-      const typeValid = this.validateType(value, propDef.type);
-      if (!typeValid) {
-        return {
-          valid: false,
-          error: `Invalid type for parameter ${key}: expected ${propDef.type}, got ${typeof value}`,
-        };
-      }
-
-      // Enum validation
-      if (propDef.enum && Array.isArray(propDef.enum)) {
-        if (!propDef.enum.includes(value)) {
-          return {
-            valid: false,
-            error: `Invalid value for parameter ${key}: must be one of [${propDef.enum.join(", ")}]`,
-          };
-        }
-      }
-    }
-
-    return { valid: true };
-  }
-
-  /**
-   * Validate value type
-   */
-  private validateType(
-    value: unknown,
-    expectedType: string
-  ): boolean {
-    switch (expectedType) {
-      case "string":
-        return typeof value === "string";
-      case "number":
-        return typeof value === "number" && !isNaN(value);
-      case "boolean":
-        return typeof value === "boolean";
-      case "object":
-        return typeof value === "object" && value !== null && !Array.isArray(value);
-      case "array":
-        return Array.isArray(value);
-      default:
-        return true; // Unknown type, allow it
+      return {
+        valid: false,
+        error: error.message || "Unknown validation error",
+      };
     }
   }
 
@@ -375,7 +324,22 @@ export class ToolRegistry {
     schema: Record<string, unknown>,
     output: unknown
   ): { valid: boolean; error?: string } {
-    return { valid: true };
+    try {
+      const zodSchema = mapJsonSchemaToZod(schema);
+      zodSchema.parse(output);
+      return { valid: true };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return {
+          valid: false,
+          error: error.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; "),
+        };
+      }
+      return {
+        valid: false,
+        error: error.message || "Unknown validation error",
+      };
+    }
   }
 
   /**
@@ -387,8 +351,18 @@ export class ToolRegistry {
     context: ToolExecutionContext,
     timeoutMs: number
   ): Promise<{ success: boolean; output?: unknown; error?: string }> {
+    const abortController = new AbortController();
+    const signal = abortController.signal;
+    
+    // Create a new context with the abort signal
+    const contextWithSignal: ToolExecutionContext = {
+      ...context,
+      abortSignal: signal
+    };
+
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
+        abortController.abort();
         reject(
           EngineErrorSchema.parse({
             code: "STEP_TIMEOUT",
@@ -399,14 +373,25 @@ export class ToolRegistry {
         );
       }, timeoutMs);
 
-      implementation(parameters, context)
+      implementation(parameters, contextWithSignal)
         .then((result) => {
           clearTimeout(timeoutId);
           resolve(result);
         })
         .catch((error) => {
           clearTimeout(timeoutId);
-          reject(error);
+          if (error.name === "AbortError") {
+            reject(
+              EngineErrorSchema.parse({
+                code: "STEP_TIMEOUT",
+                message: `Tool execution was aborted due to timeout (${timeoutMs}ms)`,
+                recoverable: false,
+                timestamp: new Date().toISOString(),
+              })
+            );
+          } else {
+            reject(error);
+          }
         });
     });
   }

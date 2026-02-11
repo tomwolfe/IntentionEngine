@@ -3,6 +3,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { ToolDefinition } from "../../lib/engine/types";
 import { z } from "zod";
+import { mapJsonSchemaToZod } from "../../lib/engine/schema-utils";
 
 /**
  * MCPClient connects to remote MCP servers and maps their tools 
@@ -52,7 +53,7 @@ export class MCPClient {
   /**
    * Calls a tool on the remote MCP server with exponential backoff retry.
    */
-  async callTool(name: string, args: Record<string, unknown>): Promise<any> {
+  async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
     return this.withRetry(async () => {
       const result = await this.client.callTool({
         name,
@@ -110,40 +111,7 @@ export class MCPClient {
     };
   }
 
-  /**
-   * Recursive helper to map JSON Schema to Zod for deep validation.
-   */
-  public mapJsonSchemaToZod(schema: any): z.ZodTypeAny {
-    if (!schema) return z.any();
-
-    switch (schema.type) {
-      case "string":
-        if (schema.enum) {
-          return z.enum(schema.enum as [string, ...string[]]);
-        }
-        return z.string();
-      case "number":
-      case "integer":
-        return z.number();
-      case "boolean":
-        return z.boolean();
-      case "array":
-        return z.array(this.mapJsonSchemaToZod(schema.items || {}));
-      case "object":
-        const shape: any = {};
-        const properties = schema.properties || {};
-        const required = schema.required || [];
-
-        for (const [key, value] of Object.entries(properties)) {
-          let fieldSchema = this.mapJsonSchemaToZod(value);
-          if (!required.includes(key)) {
-            fieldSchema = fieldSchema.optional();
-          }
-          shape[key] = fieldSchema;
-        }
-        return z.object(shape);
-      default:
-        return z.any();
-    }
+  public mapJsonSchemaToZod(schema: Record<string, unknown>): z.ZodTypeAny {
+    return mapJsonSchemaToZod(schema);
   }
 }

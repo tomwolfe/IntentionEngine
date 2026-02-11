@@ -23,8 +23,26 @@ import {
   getCompletedSteps,
   getPendingSteps,
 } from "./state-machine";
-import { saveExecutionState } from "./memory";
+import { saveExecutionState, getMemoryClient } from "./memory";
 import { MCPClient } from "../../infrastructure/mcp/MCPClient";
+
+// ============================================================================
+// SCORE OUTCOME
+// Mark plan as OPTIMAL if all steps succeeded
+// ============================================================================
+
+async function scoreOutcome(plan: Plan, state: ExecutionState): Promise<void> {
+  const allSuccessful = state.step_states.every((s) => s.status === "completed");
+  if (allSuccessful && plan.id) {
+    const memory = getMemoryClient();
+    await memory.store({
+      type: "system_config",
+      namespace: plan.id,
+      data: { score: "OPTIMAL", timestamp: new Date().toISOString() },
+      version: 1,
+    });
+  }
+}
 import { getRegistryManager, RegistryManager } from "./registry";
 import { Tracer } from "./tracing";
 import { getToolRegistry } from "./tools/registry";
@@ -43,6 +61,12 @@ export interface ExecutionResult {
   total_steps: number;
   execution_time_ms: number;
   summary?: string;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cost_usd: number;
+  };
   error?: {
     code: string;
     message: string;
@@ -506,6 +530,12 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
             failed_steps: 1,
             total_steps: plan.steps.length,
             execution_time_ms: Math.round(endTime - startTime),
+            usage: {
+              prompt_tokens: state.token_usage.prompt_tokens,
+              completion_tokens: state.token_usage.completion_tokens,
+              total_tokens: state.token_usage.total_tokens,
+              cost_usd: state.token_usage.total_tokens * 0.0000001,
+            },
             error: failedStepResult.error
               ? {
                   code: failedStepResult.error.code,
@@ -533,6 +563,9 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
     // Generate final summary
     const summary = await summarizeResults(plan, state);
 
+    // Score the outcome
+    await scoreOutcome(plan, state);
+
     return {
       state,
       success: true,
@@ -541,6 +574,12 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
       total_steps: plan.steps.length,
       execution_time_ms: Math.round(endTime - startTime),
       summary,
+      usage: {
+        prompt_tokens: state.token_usage.prompt_tokens,
+        completion_tokens: state.token_usage.completion_tokens,
+        total_tokens: state.token_usage.total_tokens,
+        cost_usd: state.token_usage.total_tokens * 0.0000001,
+      },
     };
   } catch (error) {
     const endTime = performance.now();
@@ -566,6 +605,12 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
       failed_steps: state.step_states.filter((s) => s.status === "failed").length,
       total_steps: plan.steps.length,
       execution_time_ms: Math.round(endTime - startTime),
+      usage: {
+        prompt_tokens: state.token_usage.prompt_tokens,
+        completion_tokens: state.token_usage.completion_tokens,
+        total_tokens: state.token_usage.total_tokens,
+        cost_usd: state.token_usage.total_tokens * 0.0000001,
+      },
       error: {
         code: "UNKNOWN_ERROR",
         message: errorMessage,

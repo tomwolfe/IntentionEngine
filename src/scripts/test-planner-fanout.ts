@@ -1,5 +1,5 @@
-import { convertRawPlanToPlan } from "../planner.js";
-import { Intent, PlanConstraints, ToolDefinition } from "../types.js";
+import { convertRawPlanToPlan, RawPlan } from "../lib/engine/planner.js";
+import { Intent, PlanConstraints, ToolDefinition } from "../lib/engine/types.js";
 import { randomUUID } from "crypto";
 
 async function testPlannerFanOut() {
@@ -45,7 +45,7 @@ async function testPlannerFanOut() {
 
   // Test 1: Basic Fan-Out
   console.log("Test 1: Basic Fan-Out...");
-  const rawPlan1 = {
+  const rawPlan1: RawPlan = {
     steps: [
       {
         step_number: 0,
@@ -63,7 +63,7 @@ async function testPlannerFanOut() {
   };
 
   const plan1 = convertRawPlanToPlan(
-    rawPlan1 as any,
+    rawPlan1,
     mockIntent,
     mockConstraints,
     "gpt-4o",
@@ -87,7 +87,7 @@ async function testPlannerFanOut() {
 
   // Test 2: Dependencies handling
   console.log("Test 2: Dependencies handling...");
-  const rawPlan2 = {
+  const rawPlan2: RawPlan = {
     steps: [
       {
         step_number: 0,
@@ -114,7 +114,7 @@ async function testPlannerFanOut() {
   };
 
   const plan2 = convertRawPlanToPlan(
-    rawPlan2 as any,
+    rawPlan2,
     mockIntent,
     mockConstraints,
     "gpt-4o",

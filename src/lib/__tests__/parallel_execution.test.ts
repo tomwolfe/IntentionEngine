@@ -25,6 +25,7 @@ async function testParallelExecution() {
         parameters: {},
         dependencies: [],
         description: "Independent 1",
+        requires_confirmation: false,
         timeout_ms: 5000
       },
       {
@@ -34,6 +35,7 @@ async function testParallelExecution() {
         parameters: {},
         dependencies: [],
         description: "Independent 2",
+        requires_confirmation: false,
         timeout_ms: 5000
       }
     ],

@@ -2,6 +2,7 @@ import { ToolRegistry, getToolRegistry } from "./tools/registry";
 import { MCPClient } from "../../infrastructure/mcp/MCPClient";
 import { ToolDefinition } from "./types";
 import { Tracer } from "./tracing";
+import { getMemoryClient } from "./memory";
 
 /**
  * RegistryManager coordinates local and remote tool discovery.
@@ -29,32 +30,41 @@ export class RegistryManager {
    * Discovers tools from all connected MCP servers and populates the local registry.
    */
   async discoverRemoteTools(): Promise<void> {
+    const memory = getMemoryClient();
+
     return Tracer.startActiveSpan("discover_remote_tools", async (span) => {
       const clients = Array.from(this.mcpClients.entries());
       for (const [name, client] of clients) {
         try {
           await client.connect();
           const remoteTools = await client.listTools();
+          const serverKey = `circuit_breaker:mcp:${name}`;
           
           for (const tool of remoteTools) {
             // Register a wrapper implementation that calls the MCP server
             // Note: Registry.register already validates the ToolDefinition
             this.localRegistry.register(tool, async (params, context) => {
               return Tracer.startActiveSpan(`mcp_tool_call:${tool.name}`, async (toolSpan) => {
-                // Critical Requirement: Timeout Management (10s)
+                // 1. Check Circuit Breaker
+                const failCount = await memory.getCounter(serverKey);
+                if (failCount >= 3) {
+                  return {
+                    success: false,
+                    error: `Circuit breaker tripped for MCP server: ${name}. Too many recent failures.`,
+                  };
+                }
+
                 try {
-                  const result = await Promise.race([
-                    client.callTool(tool.name, params),
-                    new Promise((_, reject) => 
-                      setTimeout(() => reject(new Error(`MCP tool ${tool.name} timed out after 10s`)), 10000)
-                    )
-                  ]);
+                  const result = await client.callTool(tool.name, params, context.abortSignal);
                   
                   return {
                     success: true,
                     output: result,
                   };
                 } catch (error: any) {
+                  // 2. Increment Failure Counter
+                  await memory.incrementCounter(serverKey, 60); // 60s window
+                  
                   return {
                     success: false,
                     error: error.message || `Failed to call remote tool ${tool.name}`,

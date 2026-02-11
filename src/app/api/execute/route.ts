@@ -34,6 +34,7 @@ import {
 } from "@/lib/engine/types";
 import { parseIntent, ParseResult, validateIntentConfidence } from "@/lib/engine/intent";
 import { generatePlan, PlannerResult } from "@/lib/engine/planner";
+import { generateText } from "@/lib/engine/llm";
 import {
   ExecutionOrchestrator,
   ExecutionResult,
@@ -46,7 +47,7 @@ import {
   setIntent,
   setPlan,
 } from "@/lib/engine/state-machine";
-import { saveExecutionState, loadExecutionState } from "@/lib/engine/memory";
+import { saveExecutionState, loadExecutionState, getMemoryClient } from "@/lib/engine/memory";
 import {
   ExecutionTracer,
   createTracer,
@@ -97,6 +98,8 @@ const ExecuteResponseSchema = z.object({
     duration_ms: z.number(),
     total_tokens: z.number(),
     step_count: z.number().optional(),
+    trace_id: z.string(),
+    total_ms: z.number(),
   }),
 });
 
@@ -159,6 +162,8 @@ interface OrchestrationResult {
     duration_ms: number;
     total_tokens: number;
     step_count?: number;
+    trace_id: string;
+    total_ms: number;
   };
 }
 
@@ -236,6 +241,8 @@ async function orchestrateExecution(
         metadata: {
           duration_ms: Math.round(performance.now() - startTime),
           total_tokens: traceResult.totalTokenUsage.totalTokens,
+          trace_id: executionId,
+          total_ms: Math.round(performance.now() - startTime),
         },
       };
     }
@@ -263,6 +270,8 @@ async function orchestrateExecution(
         metadata: {
           duration_ms: Math.round(performance.now() - startTime),
           total_tokens: traceResult.totalTokenUsage.totalTokens,
+          trace_id: executionId,
+          total_ms: Math.round(performance.now() - startTime),
         },
       };
     }
@@ -328,6 +337,30 @@ async function orchestrateExecution(
         failed_steps: executionResult.failed_steps,
       });
 
+      // Phase 3: Session Summary Generation
+      try {
+        const sessionSummaryPrompt = `Generate a 1-sentence summary of the user's progress based on this execution:
+  Intent: ${parseResult.intent.raw_input}
+  Result: ${executionResult.summary || "In progress"}
+  Status: ${executionResult.state.status}`;
+
+        const sessionSummaryResponse = await generateText({
+          modelType: "summarization",
+          prompt: sessionSummaryPrompt,
+          systemPrompt: "You are a concise progress tracker. Summarize in exactly one sentence."
+        });
+
+        const memory = getMemoryClient();
+        await memory.store({
+          type: "user_context",
+          namespace: executionId,
+          data: { summary: sessionSummaryResponse.content },
+          version: 1,
+        });
+      } catch (summaryError) {
+        console.error("Failed to generate session summary:", summaryError);
+      }
+
       // Finalize trace
       const traceResult = tracer.finalize();
 
@@ -344,6 +377,8 @@ async function orchestrateExecution(
           duration_ms: Math.round(performance.now() - startTime),
           total_tokens: traceResult.totalTokenUsage.totalTokens,
           step_count: plan.steps.length,
+          trace_id: executionId,
+          total_ms: Math.round(performance.now() - startTime),
         },
       };
     } else {
@@ -360,6 +395,8 @@ async function orchestrateExecution(
         metadata: {
           duration_ms: Math.round(performance.now() - startTime),
           total_tokens: traceResult.totalTokenUsage.totalTokens,
+          trace_id: executionId,
+          total_ms: Math.round(performance.now() - startTime),
         },
       };
     }
@@ -387,6 +424,8 @@ async function orchestrateExecution(
       metadata: {
         duration_ms: Math.round(performance.now() - startTime),
         total_tokens: traceResult.totalTokenUsage.totalTokens,
+        trace_id: executionId,
+        total_ms: Math.round(performance.now() - startTime),
       },
     };
   }

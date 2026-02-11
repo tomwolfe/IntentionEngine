@@ -339,6 +339,56 @@ export class MemoryClient {
       });
     }
   }
+
+  // ========================================================================
+  // COUNTER OPERATIONS
+  // Atomic increment and retrieval for circuit breakers
+  // ========================================================================
+
+  async incrementCounter(key: string, ttlSeconds: number): Promise<number> {
+    try {
+      const count = await this.redis.incr(key);
+      if (count === 1) {
+        await this.redis.expire(key, ttlSeconds);
+      }
+      return count;
+    } catch (error) {
+      console.error(`Failed to increment counter for ${key}:`, error);
+      return 0; // Fallback to 0 if Redis fails
+    }
+  }
+
+  async getCounter(key: string): Promise<number> {
+    try {
+      const count = await this.redis.get<number>(key);
+      return count || 0;
+    } catch (error) {
+      console.error(`Failed to get counter for ${key}:`, error);
+      return 0;
+    }
+  }
+
+  async getRecentSuccessfulIntents(limit: number = 3): Promise<ExecutionState[]> {
+    try {
+      // This is a simplified query. In a real system, we'd use a separate index or list for successful intents.
+      // For now, we query execution states and filter.
+      const query: MemoryQuery = {
+        namespace: "*",
+        type: "execution_state",
+        limit: 100, // Search through last 100 to find successful ones
+      };
+      
+      const entries = await this.query(query);
+      return entries
+        .map(e => e.data as ExecutionState)
+        .filter(s => s.status === "COMPLETED")
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, limit);
+    } catch (error) {
+      console.error("Failed to get recent successful intents:", error);
+      return [];
+    }
+  }
 }
 
 // ============================================================================

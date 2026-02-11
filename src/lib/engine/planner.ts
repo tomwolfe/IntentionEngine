@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { getMemoryClient } from "./memory";
 import {
   Intent,
   Plan,
@@ -76,6 +77,7 @@ export interface PlannerContext {
   available_tools?: ToolDefinition[];
   constraints?: Partial<PlanConstraints>;
   user_preferences?: Record<string, unknown>;
+  repairFeedback?: string;
 }
 
 // ============================================================================
@@ -404,18 +406,34 @@ export async function generatePlan(
       ...context.constraints,
     });
 
+    // Fetch recent successful intentions for context injection
+    const memory = getMemoryClient();
+    const recentIntents = await memory.getRecentSuccessfulIntents(3);
+    const contextHistory = recentIntents.map(s => ({
+      input: s.intent?.raw_input,
+      summary: s.plan?.summary,
+      status: s.status
+    }));
+
     // Generate plan using LLM
+    const basePrompt = JSON.stringify({
+      intent_type: intent.type,
+      parameters: intent.parameters,
+      raw_input: intent.raw_input,
+      explanation: intent.explanation,
+      recent_successful_history: contextHistory,
+    });
+
+    const prompt = context.repairFeedback 
+      ? `REPAIR INSTRUCTION: ${context.repairFeedback}\n\nORIGINAL INTENT: ${basePrompt}`
+      : basePrompt;
+
     const generationResult: GenerateStructuredResult<RawPlan> = await generateStructured({
       modelType: "planning",
-      prompt: JSON.stringify({
-        intent_type: intent.type,
-        parameters: intent.parameters,
-        raw_input: intent.raw_input,
-        explanation: intent.explanation,
-      }),
+      prompt,
       systemPrompt: buildPlanningPrompt(context),
       schema: RawPlanSchema,
-      temperature: 0.1,
+      temperature: context.repairFeedback ? 0.2 : 0.1, // Slightly higher temp for repair
       timeoutMs: 30000, // 30 second timeout for planning
     });
 

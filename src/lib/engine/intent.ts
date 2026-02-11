@@ -95,9 +95,10 @@ const INTENT_CLASSIFICATION_PROMPT = `You are an intent classification system. Y
 ## Output Requirements
 1. Always provide a confidence score between 0 and 1
 2. Extract relevant parameters from the user input (dates, names, locations, etc.)
-3. Provide a clear explanation of why this intent was chosen
-4. Set requires_clarification to true if the user needs to provide more information
-5. If clarification is needed, provide a specific prompt asking for the missing information
+3. If a parameter contains multiple distinct entities (e.g., "Tokyo, London, and NY"), return them as an array of entities for that parameter.
+4. Provide a clear explanation of why this intent was chosen
+5. Set requires_clarification to true if the user needs to provide more information
+6. If clarification is needed, provide a specific prompt asking for the missing information
 
 ## Examples
 Input: "Schedule a meeting with John tomorrow at 2pm"
@@ -111,6 +112,17 @@ Output: {
     "time": "2pm"
   },
   "explanation": "User wants to create a calendar event with a specific person at a specific time",
+  "requires_clarification": false
+}
+
+Input: "What is the weather in Tokyo, London, and New York?"
+Output: {
+  "type": "QUERY",
+  "confidence": 0.98,
+  "parameters": {
+    "location": ["Tokyo", "London", "New York"]
+  },
+  "explanation": "User is asking for weather information for multiple locations",
   "requires_clarification": false
 }
 

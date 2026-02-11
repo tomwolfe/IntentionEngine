@@ -28,7 +28,7 @@ import { MCPClient } from "../../infrastructure/mcp/MCPClient";
 import { getRegistryManager, RegistryManager } from "./registry";
 import { Tracer } from "./tracing";
 import { getToolRegistry } from "./tools/registry";
-import { generateText } from "./llm";
+import { generateText, SUMMARIZATION_PROMPT } from "./llm";
 
 // ============================================================================
 // EXECUTION RESULT
@@ -42,6 +42,7 @@ export interface ExecutionResult {
   failed_steps: number;
   total_steps: number;
   execution_time_ms: number;
+  summary?: string;
   error?: {
     code: string;
     message: string;
@@ -280,6 +281,49 @@ async function executeStep(
 }
 
 // ============================================================================
+// SUMMARIZE RESULTS
+// Generate a concise summary of all tool execution results
+// ============================================================================
+
+async function summarizeResults(
+  plan: Plan,
+  state: ExecutionState
+): Promise<string> {
+  const completedSteps = getCompletedSteps(state);
+  
+  if (completedSteps.length === 0) {
+    return "No steps were completed successfully.";
+  }
+
+  const history = state.step_states.map(s => ({
+    step_id: s.step_id,
+    tool: plan.steps.find(ps => ps.id === s.step_id)?.tool_name,
+    input: s.input,
+    output: s.output,
+    status: s.status,
+    error: s.error
+  }));
+
+  const prompt = SUMMARIZATION_PROMPT
+    .replace("{intent}", JSON.stringify(state.intent?.parameters || {}))
+    .replace("{plan_summary}", plan.summary)
+    .replace("{tool_outputs}", JSON.stringify(history, null, 2));
+
+  try {
+    const summaryResponse = await generateText({
+      modelType: "summarization",
+      prompt,
+      systemPrompt: "You are a results summarization system. Strictly map outputs to inputs and avoid hallucination."
+    });
+
+    return summaryResponse.content;
+  } catch (error) {
+    console.error("Summarization failed:", error);
+    return `Execution completed with ${completedSteps.length} successful steps.`;
+  }
+}
+
+// ============================================================================
 // EXECUTE PLAN
 // Main execution entry point with parallel execution and reflection
 // ============================================================================
@@ -486,6 +530,9 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
       await saveExecutionState(state);
     }
 
+    // Generate final summary
+    const summary = await summarizeResults(plan, state);
+
     return {
       state,
       success: true,
@@ -493,6 +540,7 @@ Respond with only the updated steps for the remaining plan, ensuring dependencie
       failed_steps: 0,
       total_steps: plan.steps.length,
       execution_time_ms: Math.round(endTime - startTime),
+      summary,
     };
   } catch (error) {
     const endTime = performance.now();

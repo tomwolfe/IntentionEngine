@@ -116,21 +116,55 @@ Given a user intent, create a detailed execution plan with ordered steps. Each s
 1. Steps must be ordered logically (dependencies must have lower step_number)
 2. NO circular dependencies allowed
 3. Max {max_steps} steps allowed - if task requires more, combine steps
-4. Estimate token usage for each step (approximate)
-5. Provide clear, actionable descriptions
-6. Use requires_confirmation for irreversible actions (payments, sends, bookings)
+4. FAN-OUT: If an intent parameter contains an array of entities (e.g., location: ["Tokyo", "London"]) and the chosen tool only handles one entity at a time, you MUST generate a separate PlanStep for EACH entity. These steps should execute in parallel (no dependencies between them) unless one logically depends on the other.
+5. Estimate token usage for each step (approximate)
+6. Provide clear, actionable descriptions
+7. Use requires_confirmation for irreversible actions (payments, sends, bookings)
 
 ## Available Tools
 {available_tools}
 
 ## Output Format
 Return a JSON object with:
-- steps: Array of step objects
+- steps: Array of step objects. For fan-out, ensure multiple steps are generated.
 - summary: Brief summary of the overall plan
 - estimated_total_tokens: Total token estimate for all steps
 - estimated_latency_ms: Estimated execution time in milliseconds
 
 ## Example
+Input Intent:
+{
+  "type": "QUERY",
+  "parameters": { "location": ["Tokyo", "London"] }
+}
+
+Output Plan:
+{
+  "steps": [
+    {
+      "step_number": 0,
+      "tool_name": "get_weather",
+      "parameters": { "location": "Tokyo" },
+      "dependencies": [],
+      "description": "Get weather for Tokyo",
+      "requires_confirmation": false,
+      "estimated_tokens": 100
+    },
+    {
+      "step_number": 1,
+      "tool_name": "get_weather",
+      "parameters": { "location": "London" },
+      "dependencies": [],
+      "description": "Get weather for London",
+      "requires_confirmation": false,
+      "estimated_tokens": 100
+    }
+  ],
+  "summary": "Get weather for Tokyo and London in parallel",
+  "estimated_total_tokens": 200,
+  "estimated_latency_ms": 2000
+}
+
 Input Intent:
 {
   "type": "SCHEDULE",

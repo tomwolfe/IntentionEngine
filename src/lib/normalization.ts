@@ -85,6 +85,23 @@ export function normalizeIntent(
      }
   }
 
+  // 6. Transactional Argument Check: Penalize confidence if booking/payment lacks target or amount
+  if (intent.type === "ACTION") {
+    const capability = (intent.parameters.capability || "").toLowerCase();
+    const args = intent.parameters.arguments || {};
+    const isBookingOrPayment = capability.includes("booking") || 
+                               capability.includes("payment") || 
+                               capability.includes("reserve") ||
+                               capability.includes("mobility");
+    
+    if (isBookingOrPayment) {
+      if (!args.target_object && !args.amount && !args.restaurant_name && !args.service) {
+        intent.confidence = 0.1;
+        intent.explanation = (intent.explanation || "") + " [Confidence Penalty: Missing target_object, amount, or specific service for transactional action]";
+      }
+    }
+  }
+
   return intent;
 }
 

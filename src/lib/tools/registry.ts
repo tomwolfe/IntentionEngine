@@ -10,7 +10,9 @@ import {
 } from "./mobility";
 import { 
   reserve_table, 
-  tableReservationReturnSchema
+  reserve_restaurant,
+  tableReservationReturnSchema,
+  reserveRestaurantToolDefinition
 } from "./booking";
 import { 
   send_comm, 
@@ -234,6 +236,10 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
       requests_per_hour: 100
     },
     execute: reserve_table
+  }],
+  ["reserve_restaurant", {
+    ...reserveRestaurantToolDefinition,
+    execute: reserve_restaurant
   }],
   ["send_comm", {
     name: "send_comm",

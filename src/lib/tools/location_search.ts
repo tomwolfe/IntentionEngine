@@ -208,3 +208,28 @@ export async function search_restaurant(params: z.infer<typeof SearchRestaurantS
     return { success: false, error: error.message };
   }
 }
+
+export async function search_web(query: string): Promise<{ success: boolean; result?: any; error?: string }> {
+  console.log(`Searching web for: ${query}...`);
+  try {
+    // Using DuckDuckGo's free "Instant Answer" API as a fallback for discovery
+    const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`);
+    const data = await response.json();
+    
+    // Simple heuristic for demo: extract email if found in abstract or related topics
+    // In a real production app, we would use a more robust search + scraping or a professional API
+    const abstract = data.AbstractText || "";
+    const emailMatch = abstract.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    
+    return {
+      success: true,
+      result: {
+        text: abstract,
+        email: emailMatch ? emailMatch[0] : null,
+        source: "DuckDuckGo"
+      }
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}

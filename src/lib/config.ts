@@ -7,6 +7,8 @@ const envSchema = z.object({
   LLM_MODEL: z.string().min(1).default("glm-4.7-flash"),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  TABLESTACK_API_URL: z.string().url().default("https://table-stack.vercel.app/api/v1"),
+  TABLESTACK_INTERNAL_API_KEY: z.string().optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

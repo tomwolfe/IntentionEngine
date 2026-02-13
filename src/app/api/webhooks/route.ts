@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         message: "Failover initiated",
         hypotheses: result.hypotheses,
-        plan_id: result.plan?.id
+        plan_id: result.plan?.intent_id
       });
     }
 

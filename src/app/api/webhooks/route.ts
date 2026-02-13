@@ -3,23 +3,30 @@ import { inferIntent } from "@/lib/intent";
 import { generatePlan } from "@/lib/planner";
 import { createAuditLog } from "@/lib/audit";
 import { z } from "zod";
+import { handleTableStackRejection } from "@/lib/listeners/tablestack";
 
 export const runtime = "edge";
 
 const WebhookEventSchema = z.object({
   event: z.string(),
+  // Fields for high_value_guest_reservation
   guest: z.object({
     name: z.string(),
     email: z.string(),
     visitCount: z.number(),
     defaultDeliveryAddress: z.string().optional().nullable(),
-  }),
+  }).optional(),
   reservation: z.object({
-    id: z.string(),
+    id: z.string().optional(),
     restaurantName: z.string(),
     startTime: z.string(),
     partySize: z.number(),
-  }),
+  }).optional(),
+  // Fields for reservation_rejected (can overlap)
+  guestEmail: z.string().optional(),
+  restaurantName: z.string().optional(),
+  startTime: z.string().optional(),
+  partySize: z.number().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -33,9 +40,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: "Event received but schema mismatch" }, { status: 200 });
     }
 
-    const { event, guest, reservation } = validatedBody.data;
+    const { event, guest, reservation, guestEmail, restaurantName, startTime, partySize } = validatedBody.data;
 
-    if (event === 'high_value_guest_reservation') {
+    if (event === 'reservation_rejected') {
+      const result = await handleTableStackRejection({
+        guestEmail: guestEmail || "",
+        restaurantName: restaurantName || "",
+        startTime: startTime || "",
+        partySize: partySize || 0,
+      });
+
+      return NextResponse.json({
+        message: "Failover initiated",
+        hypotheses: result.hypotheses,
+        plan_id: result.plan?.id
+      });
+    }
+
+    if (event === 'high_value_guest_reservation' && guest && reservation) {
       // Strategic Synergy: High-value guest detected. 
       // Proactively suggest a delivery or transport workflow if they have a saved address.
       

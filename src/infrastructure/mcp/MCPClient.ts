@@ -115,7 +115,9 @@ export class MCPClient {
       "email_address": "email",
       "delivery_address": "location_name",
       "pickup_address": "location_name",
-      "restaurant_id": "venue_id"
+      "restaurant_id": "venue_id",
+      "restaurantName": "pickup_address",
+      "guestEmail": "email"
     };
 
     return {

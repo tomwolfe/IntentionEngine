@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ToolDefinitionMetadata, ToolParameter } from "./types";
 import { geocode_location, search_web } from "./location_search";
 import { env } from "../config";
-import { signServiceToken } from "../../../../shared/auth";
+import { signServiceToken } from "../auth";
 
 export const TableReservationSchema = z.object({
   restaurant_name: z.string().describe("The name of the restaurant."),

@@ -11,6 +11,7 @@
  */
 
 import { redis } from "../redis-client";
+import type { Redis } from "@upstash/redis";
 import {
   MemoryEntry,
   MemoryEntrySchema,

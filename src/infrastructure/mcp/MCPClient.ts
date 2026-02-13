@@ -112,7 +112,8 @@ export class MCPClient {
       "phone_number": "phone",
       "email_address": "email",
       "delivery_address": "location_name",
-      "pickup_address": "location_name"
+      "pickup_address": "location_name",
+      "restaurant_id": "venue_id"
     };
 
     return {

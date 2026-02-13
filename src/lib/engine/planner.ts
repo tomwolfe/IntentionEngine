@@ -123,6 +123,7 @@ Given a user intent, create a detailed execution plan with ordered steps. Each s
 6. Estimate token usage for each step (approximate)
 7. Provide clear, actionable descriptions
 8. Use requires_confirmation for irreversible actions (payments, sends, bookings)
+9. SYSTEM 2 REASONING: If you detect both a delivery request (OpenDeliver) and a reservation request (TableStack) for the same location and time, you MUST suggest merging them into a "Dine-in with Special Delivery" intent. In the plan summary, explicitly explain that the items will be delivered directly to the restaurant table for the guest's arrival.
 
 ## Available Tools
 {available_tools}

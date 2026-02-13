@@ -4,6 +4,7 @@ import { generatePlan } from "@/lib/planner";
 import { createAuditLog } from "@/lib/audit";
 import { z } from "zod";
 import { handleTableStackRejection } from "@/lib/listeners/tablestack";
+import { verifySignature } from "@/lib/security";
 
 export const runtime = "edge";
 
@@ -31,12 +32,22 @@ const WebhookEventSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const rawBody = await req.json();
-    console.log("[IntentionEngine Webhook] Received:", JSON.stringify(rawBody, null, 2));
+    const rawBody = await req.text();
+    const signature = req.headers.get("x-signature");
+    const timestamp = Number(req.headers.get("x-timestamp"));
 
-    const validatedBody = WebhookEventSchema.safeParse(rawBody);
+    // Fail-Fast: Security Check
+    if (!signature || !timestamp || !(await verifySignature(rawBody, signature, timestamp))) {
+      console.warn("[IntentionEngine Webhook] Unauthorized request blocked");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody);
+    console.log("[IntentionEngine Webhook] Received:", JSON.stringify(body, null, 2));
+
+    const validatedBody = WebhookEventSchema.safeParse(body);
     if (!validatedBody.success) {
-      // Still return 200 to acknowledge receipt if it's an unknown event
+      console.warn("[IntentionEngine Webhook] Schema mismatch:", validatedBody.error.format());
       return NextResponse.json({ message: "Event received but schema mismatch" }, { status: 200 });
     }
 

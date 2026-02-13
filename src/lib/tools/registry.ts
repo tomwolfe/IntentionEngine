@@ -22,6 +22,10 @@ import {
   get_weather, 
   weatherReturnSchema
 } from "./context";
+import { 
+  get_live_operational_state,
+  getLiveOperationalStateToolDefinition
+} from "./operational_state";
 import { RestaurantResultSchema } from "../schema";
 
 /**
@@ -284,6 +288,10 @@ export const TOOLS: Map<string, ToolDefinition> = new Map([
       requests_per_hour: 1000
     },
     execute: get_weather
+  }],
+  ["get_live_operational_state", {
+    ...getLiveOperationalStateToolDefinition,
+    execute: get_live_operational_state
   }]
 ]);
 

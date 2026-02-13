@@ -310,6 +310,30 @@ async function executeStep(
       }
 
       if (toolResult.success) {
+        // Operational Readiness: Store driver details in session memory for follow-up questions
+        if (step.tool_name === "dispatch_intent") {
+          try {
+            const memory = getMemoryClient();
+            const output = toolResult.output as any;
+            // Assuming output contains message or we can derive info from input + result
+            await memory.store({
+              type: "user_context",
+              namespace: state.execution_id,
+              data: {
+                last_delivery: {
+                  order_id: resolvedParameters.order_id,
+                  status: "dispatched",
+                  details: output.text || output,
+                  timestamp: new Date().toISOString()
+                }
+              },
+              version: 1
+            });
+          } catch (memError) {
+            console.error("[Orchestrator] Failed to store delivery context:", memError);
+          }
+        }
+
         return {
           step_id: step.id,
           status: "completed",

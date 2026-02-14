@@ -132,7 +132,7 @@ export class MCPClient {
       return_schema: return_schema as Record<string, unknown>,
       parameter_aliases,
       timeout_ms: 30000,
-      requires_confirmation: requires_confirmation || true, // Category is hardcoded to external below
+      requires_confirmation: (tool as any).requiresConfirmation ?? (tool as any).requires_confirmation ?? requires_confirmation,
       category: "external",
       origin: this.serverUrl,
     };

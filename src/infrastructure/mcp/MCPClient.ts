@@ -4,6 +4,7 @@ import { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { ToolDefinition } from "../../lib/engine/types";
 import { z } from "zod";
 import { mapJsonSchemaToZod } from "../../lib/engine/schema-utils";
+import { mcpConfig } from "../../lib/mcp-config";
 
 /**
  * MCPClient connects to remote MCP servers and maps their tools 
@@ -115,8 +116,7 @@ export class MCPClient {
       "email_address": "email",
       "delivery_address": "location_name",
       "pickup_address": "location_name",
-      "restaurant_id": "venue_id",
-      "merchant_id": "venue_id",
+      ...mcpConfig.parameter_aliases, // Use centralized aliases
       "restaurantName": "pickup_address",
       "guestEmail": "email",
       "target_destination": "delivery_address",

@@ -3,6 +3,7 @@ import { MCPClient } from "../../infrastructure/mcp/MCPClient";
 import { ToolDefinition } from "./types";
 import { Tracer } from "./tracing";
 import { getMemoryClient } from "./memory";
+import { mcpConfig } from "../mcp-config";
 
 /**
  * RegistryManager coordinates local and remote tool discovery.
@@ -24,9 +25,10 @@ export class RegistryManager {
     if (process.env.VERCEL_MCP_URL) {
       this.mcpClients.set("vercel", new MCPClient(process.env.VERCEL_MCP_URL));
     }
-    if (process.env.OPENDELIVER_MCP_URL) {
-      this.mcpClients.set("opendeliver", new MCPClient(process.env.OPENDELIVER_MCP_URL));
-    }
+    
+    // OpenDeliver uses mcpConfig for transport
+    this.mcpClients.set("opendeliver", new MCPClient(mcpConfig.transport.opendeliver));
+
     if (process.env.TABLESTACK_MCP_URL) {
       this.mcpClients.set("tablestack", new MCPClient(process.env.TABLESTACK_MCP_URL));
     }
